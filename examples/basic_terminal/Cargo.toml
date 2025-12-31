@@ -1,0 +1,14 @@
+[package]
+name = "basic_terminal"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+gpui = ["dep:gpui", "gpui_ghostty_terminal/gpui"]
+
+[dependencies]
+gpui_ghostty_terminal = { path = "../../crates/gpui_ghostty_terminal" }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "6016d0b8c6a22e586158d3b6f810b3cebb136118", package = "gpui", optional = true }
+

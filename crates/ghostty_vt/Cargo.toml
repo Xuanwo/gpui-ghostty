@@ -1,0 +1,9 @@
+[package]
+name = "ghostty_vt"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ghostty_vt_sys = { path = "../ghostty_vt_sys" }
+

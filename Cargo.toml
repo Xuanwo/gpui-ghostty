@@ -1,0 +1,5 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "examples/*"]
+default-members = ["crates/ghostty_vt_sys", "crates/ghostty_vt"]
+

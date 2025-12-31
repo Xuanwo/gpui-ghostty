@@ -66,6 +66,12 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Add a `Copy` action that writes the current viewport to clipboard.
 - [x] Bind `cmd-c` in `basic_terminal` to trigger copy.
 
+### M1.4: Bracketed Paste + Click-to-Focus (Minimal)
+
+- [x] Track bracketed paste mode (`DECSET 2004`) from output bytes.
+- [x] When bracketed paste mode is enabled, wrap pasted content with `ESC[200~` and `ESC[201~`.
+- [x] Focus the view on mouse click.
+
 ## User Work
 
 - [x] Cleanup features: make gpui and Zig build required.

@@ -15,6 +15,7 @@ impl Default for TerminalConfig {
 pub struct TerminalSession {
     config: TerminalConfig,
     terminal: Terminal,
+    bracketed_paste_enabled: bool,
 }
 
 impl TerminalSession {
@@ -22,6 +23,7 @@ impl TerminalSession {
         Ok(Self {
             config,
             terminal: Terminal::new(config.cols, config.rows)?,
+            bracketed_paste_enabled: false,
         })
     }
 
@@ -33,7 +35,35 @@ impl TerminalSession {
         self.config.rows
     }
 
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.bracketed_paste_enabled
+    }
+
+    fn update_modes_from_output(&mut self, bytes: &[u8]) {
+        const ENABLE: &[u8] = b"\x1b[?2004h";
+        const DISABLE: &[u8] = b"\x1b[?2004l";
+
+        let mut i = 0usize;
+        while i + 3 < bytes.len() {
+            if bytes[i] == 0x1b && bytes[i + 1] == b'[' && bytes[i + 2] == b'?' {
+                let tail = &bytes[i..];
+                if tail.starts_with(ENABLE) {
+                    self.bracketed_paste_enabled = true;
+                    i += ENABLE.len();
+                    continue;
+                }
+                if tail.starts_with(DISABLE) {
+                    self.bracketed_paste_enabled = false;
+                    i += DISABLE.len();
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        self.update_modes_from_output(bytes);
         self.terminal.feed(bytes)
     }
 
@@ -50,7 +80,7 @@ pub mod view {
     use super::TerminalSession;
     use gpui::{
         actions, div, prelude::*, ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent,
-        Render, ScrollDelta, ScrollWheelEvent, Window,
+        MouseButton, MouseDownEvent, Render, ScrollDelta, ScrollWheelEvent, Window,
     };
 
     actions!(terminal_view, [Copy, Paste]);
@@ -85,13 +115,28 @@ pub mod view {
                 return;
             };
 
-            let _ = self.session.feed(text.as_bytes());
+            if self.session.bracketed_paste_enabled() {
+                let _ = self.session.feed(b"\x1b[200~");
+                let _ = self.session.feed(text.as_bytes());
+                let _ = self.session.feed(b"\x1b[201~");
+            } else {
+                let _ = self.session.feed(text.as_bytes());
+            }
             self.refresh_viewport();
             cx.notify();
         }
 
         fn on_copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
             cx.write_to_clipboard(ClipboardItem::new_string(self.viewport.clone()));
+        }
+
+        fn on_mouse_down(
+            &mut self,
+            _: &MouseDownEvent,
+            window: &mut Window,
+            _cx: &mut Context<Self>,
+        ) {
+            self.focus_handle.focus(window);
         }
 
         fn on_key_down(
@@ -173,6 +218,7 @@ pub mod view {
                 .on_action(cx.listener(Self::on_paste))
                 .on_key_down(cx.listener(Self::on_key_down))
                 .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
+                .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
                 .font_family("monospace")
                 .whitespace_nowrap()
                 .child(self.viewport.clone())

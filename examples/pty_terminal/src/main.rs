@@ -97,7 +97,7 @@ fn main() {
 
                         cx.update(|_, cx| {
                             view_for_task.update(cx, |this, cx| {
-                                this.feed_output_bytes(&batch, cx);
+                                this.queue_output_bytes(&batch, cx);
                             });
                         })
                         .ok();

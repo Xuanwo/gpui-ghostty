@@ -104,6 +104,10 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Wire terminal input (typing + paste) to PTY stdin.
 - [x] Stream PTY stdout to the VT core and render in GPUI.
 
+### M3.1: Output Coalescing (Minimal)
+
+- [x] Coalesce PTY output updates to reduce viewport dumps under high throughput.
+
 ## User Work
 
 - [x] Cleanup features: make gpui and Zig build required.

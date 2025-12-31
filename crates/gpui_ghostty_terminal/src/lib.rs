@@ -205,6 +205,7 @@ pub mod view {
         focus_handle: FocusHandle,
         last_window_title: Option<String>,
         input: Option<TerminalInput>,
+        pending_output: Vec<u8>,
     }
 
     impl TerminalView {
@@ -215,6 +216,7 @@ pub mod view {
                 focus_handle,
                 last_window_title: None,
                 input: None,
+                pending_output: Vec::new(),
             }
             .with_refreshed_viewport()
         }
@@ -230,6 +232,7 @@ pub mod view {
                 focus_handle,
                 last_window_title: None,
                 input: Some(input),
+                pending_output: Vec::new(),
             }
             .with_refreshed_viewport()
         }
@@ -253,6 +256,11 @@ pub mod view {
             let _ = self.session.feed(bytes);
             self.refresh_viewport();
             self.apply_side_effects(cx);
+            cx.notify();
+        }
+
+        pub fn queue_output_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+            self.pending_output.extend_from_slice(bytes);
             cx.notify();
         }
 
@@ -564,6 +572,13 @@ pub mod view {
 
     impl Render for TerminalView {
         fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            if !self.pending_output.is_empty() {
+                let bytes = std::mem::take(&mut self.pending_output);
+                let _ = self.session.feed(&bytes);
+                self.refresh_viewport();
+                self.apply_side_effects(cx);
+            }
+
             let title = self
                 .session
                 .title()

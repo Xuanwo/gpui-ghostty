@@ -61,6 +61,11 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Support `PageUp`/`PageDown` viewport scrolling.
 - [x] Avoid unconditional viewport dumps during render.
 
+### M1.3: Basic Copy (Minimal)
+
+- [x] Add a `Copy` action that writes the current viewport to clipboard.
+- [x] Bind `cmd-c` in `basic_terminal` to trigger copy.
+
 ## User Work
 
 - [x] Cleanup features: make gpui and Zig build required.
@@ -74,3 +79,4 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - M1: Incremental damage updates, selection/copy, scrollback, bracketed paste, basic mouse.
 - M2: OSC title/link/clipboard, fuller keyboard encoding via Ghostty key encoder, mouse modes.
 - M3: Unicode/fallback font strategy, high-throughput batching/backpressure, deep behavior regressions.
+- M4: End to end examples that starts user login shell inside terminal.

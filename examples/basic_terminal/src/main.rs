@@ -1,9 +1,12 @@
 fn main() {
     use gpui::{App, AppContext, Application, KeyBinding, WindowOptions};
-    use gpui_ghostty_terminal::{view::Paste, TerminalConfig, TerminalSession};
+    use gpui_ghostty_terminal::{view::Copy, view::Paste, TerminalConfig, TerminalSession};
 
     Application::new().run(|cx: &mut App| {
-        cx.bind_keys([KeyBinding::new("cmd-v", Paste, None)]);
+        cx.bind_keys([
+            KeyBinding::new("cmd-c", Copy, None),
+            KeyBinding::new("cmd-v", Paste, None),
+        ]);
 
         cx.open_window(WindowOptions::default(), |window, cx| {
             cx.new(|cx| {

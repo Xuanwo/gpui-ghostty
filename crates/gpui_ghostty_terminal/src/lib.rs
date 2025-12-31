@@ -49,11 +49,11 @@ impl TerminalSession {
 pub mod view {
     use super::TerminalSession;
     use gpui::{
-        actions, div, prelude::*, Context, FocusHandle, IntoElement, KeyDownEvent, Render,
-        ScrollDelta, ScrollWheelEvent, Window,
+        actions, div, prelude::*, ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent,
+        Render, ScrollDelta, ScrollWheelEvent, Window,
     };
 
-    actions!(terminal_view, [Paste]);
+    actions!(terminal_view, [Copy, Paste]);
 
     pub struct TerminalView {
         session: TerminalSession,
@@ -88,6 +88,10 @@ pub mod view {
             let _ = self.session.feed(text.as_bytes());
             self.refresh_viewport();
             cx.notify();
+        }
+
+        fn on_copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
+            cx.write_to_clipboard(ClipboardItem::new_string(self.viewport.clone()));
         }
 
         fn on_key_down(
@@ -165,6 +169,7 @@ pub mod view {
                 .size_full()
                 .flex()
                 .track_focus(&self.focus_handle)
+                .on_action(cx.listener(Self::on_copy))
                 .on_action(cx.listener(Self::on_paste))
                 .on_key_down(cx.listener(Self::on_key_down))
                 .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))

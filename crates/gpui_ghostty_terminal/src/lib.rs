@@ -305,10 +305,7 @@ pub mod view {
         ) {
             let keystroke = event.keystroke.clone().with_simulated_ime();
 
-            if keystroke.modifiers.platform
-                || keystroke.modifiers.alt
-                || keystroke.modifiers.function
-            {
+            if keystroke.modifiers.platform || keystroke.modifiers.function {
                 return;
             }
 
@@ -337,9 +334,100 @@ pub mod view {
                 return;
             }
 
+            if keystroke.modifiers.alt {
+                if let Some(text) = keystroke.key_char.as_deref() {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(&[0x1b]);
+                        input.send(text.as_bytes());
+                        return;
+                    }
+                }
+                return;
+            }
+
             let scroll_step = (self.session.rows() as i32 / 2).max(1);
+
+            if let Some(input) = self.input.as_ref() {
+                if !keystroke.modifiers.shift {
+                    match keystroke.key.as_str() {
+                        "home" => {
+                            input.send(b"\x1b[H");
+                            return;
+                        }
+                        "end" => {
+                            input.send(b"\x1b[F");
+                            return;
+                        }
+                        "pageup" | "page_up" | "page-up" => {
+                            input.send(b"\x1b[5~");
+                            return;
+                        }
+                        "pagedown" | "page_down" | "page-down" => {
+                            input.send(b"\x1b[6~");
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                match keystroke.key.as_str() {
+                    "f1" => {
+                        input.send(b"\x1bOP");
+                        return;
+                    }
+                    "f2" => {
+                        input.send(b"\x1bOQ");
+                        return;
+                    }
+                    "f3" => {
+                        input.send(b"\x1bOR");
+                        return;
+                    }
+                    "f4" => {
+                        input.send(b"\x1bOS");
+                        return;
+                    }
+                    "f5" => {
+                        input.send(b"\x1b[15~");
+                        return;
+                    }
+                    "f6" => {
+                        input.send(b"\x1b[17~");
+                        return;
+                    }
+                    "f7" => {
+                        input.send(b"\x1b[18~");
+                        return;
+                    }
+                    "f8" => {
+                        input.send(b"\x1b[19~");
+                        return;
+                    }
+                    "f9" => {
+                        input.send(b"\x1b[20~");
+                        return;
+                    }
+                    "f10" => {
+                        input.send(b"\x1b[21~");
+                        return;
+                    }
+                    "f11" => {
+                        input.send(b"\x1b[23~");
+                        return;
+                    }
+                    "f12" => {
+                        input.send(b"\x1b[24~");
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+
             match keystroke.key.as_str() {
                 "home" => {
+                    if self.input.is_some() && !keystroke.modifiers.shift {
+                        return;
+                    }
                     let _ = self.session.scroll_viewport_top();
                     self.refresh_viewport();
                     self.apply_side_effects(cx);
@@ -347,6 +435,9 @@ pub mod view {
                     return;
                 }
                 "end" => {
+                    if self.input.is_some() && !keystroke.modifiers.shift {
+                        return;
+                    }
                     let _ = self.session.scroll_viewport_bottom();
                     self.refresh_viewport();
                     self.apply_side_effects(cx);
@@ -354,6 +445,9 @@ pub mod view {
                     return;
                 }
                 "pageup" | "page_up" | "page-up" => {
+                    if self.input.is_some() && !keystroke.modifiers.shift {
+                        return;
+                    }
                     let _ = self.session.scroll_viewport(-scroll_step);
                     self.refresh_viewport();
                     self.apply_side_effects(cx);
@@ -361,6 +455,9 @@ pub mod view {
                     return;
                 }
                 "pagedown" | "page_down" | "page-down" => {
+                    if self.input.is_some() && !keystroke.modifiers.shift {
+                        return;
+                    }
                     let _ = self.session.scroll_viewport(scroll_step);
                     self.refresh_viewport();
                     self.apply_side_effects(cx);

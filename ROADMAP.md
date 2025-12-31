@@ -92,6 +92,12 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Send arrow keys (`Up/Down/Left/Right`) to PTY as ANSI sequences.
 - [x] Send `Escape`, `Delete`, and `Backspace` to PTY with common sequences.
 
+### M2.4: Modifier-Aware PTY Keys (Minimal)
+
+- [x] Send `Home`/`End`/`PageUp`/`PageDown` to PTY without modifiers; use `Shift+...` for scrollback controls.
+- [x] Send function keys (`F1`..`F12`) to PTY with common xterm sequences.
+- [x] Support `Alt+<char>` by prefixing with `ESC` in PTY mode.
+
 ### M4.1: PTY Login Shell Example (Minimal)
 
 - [x] Add an example that spawns the user's login shell in a PTY.

@@ -2,10 +2,11 @@
 
 ## Non-Negotiable Requirements
 
-1. Create `ROADMAP.md` based on the provided input document.
-2. Continuously track progress by updating `ROADMAP.md` until all scoped tasks in `ROADMAP.md` are completed.
-3. Do not ask the user any questions. Keep going until `ROADMAP.md` is fully completed.
-4. Work on the `main` branch. You may create git commits whenever necessary.
+- Create `ROADMAP.md` based on the provided input document.
+- Continuously track progress by updating `ROADMAP.md` until all tasks in `ROADMAP.md` are completed.
+- User might add new works under `User Work`, please finish them first and update the status.
+- Do not ask the user any questions. Keep going until `ROADMAP.md` is fully completed.
+- Work on the `main` branch. You may create git commits whenever necessary.
 
 ## Working Principles
 

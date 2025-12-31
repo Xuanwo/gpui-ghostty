@@ -8,8 +8,6 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - GPUI as the only rendering stack (no Ghostty renderer reuse)
 - Pinned upstream revisions to reduce churn
 
-This roadmap is intentionally scoped to **foundation + buildable scaffolding**. Feature milestones (M1+) are listed as future work but are **out of scope** for this task.
-
 ## Hard Constraints
 
 - Ghostty is vendored via git submodule and pinned to tag `v1.2.3`.
@@ -46,9 +44,13 @@ This roadmap is intentionally scoped to **foundation + buildable scaffolding**. 
   - create a terminal with a given size
   - feed bytes
   - dump the viewport as `String`
-- [x] Add a feature-gated validation path:
-  - `cargo check -p ghostty_vt_sys --features zig-build`
-  - `cargo test -p ghostty_vt --features zig-build`
+- [x] Add a validation path:
+  - `cargo check -p ghostty_vt_sys`
+  - `cargo test -p ghostty_vt`
+  
+## User Work
+
+- [x] Cleanup features: make gpui and Zig build required.
 
 ## Future Work
 

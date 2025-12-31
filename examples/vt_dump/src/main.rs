@@ -1,9 +1,3 @@
-#[cfg(not(feature = "zig-build"))]
-fn main() {
-    eprintln!("Enable the `zig-build` feature to build this example.");
-}
-
-#[cfg(feature = "zig-build")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Read;
 
@@ -17,4 +11,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     print!("{s}");
     Ok(())
 }
-

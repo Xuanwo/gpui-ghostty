@@ -1,4 +1,3 @@
-#[cfg(feature = "zig-build")]
 #[repr(C)]
 pub struct ghostty_vt_bytes_t {
     pub ptr: *const u8,
@@ -8,7 +7,6 @@ pub struct ghostty_vt_bytes_t {
 pub const PINNED_GHOSTTY_TAG: &str = "v1.2.3";
 pub const PINNED_ZIG_VERSION: &str = "0.14.1";
 
-#[cfg(feature = "zig-build")]
 extern "C" {
     pub fn ghostty_vt_terminal_new(cols: u16, rows: u16) -> *mut core::ffi::c_void;
     pub fn ghostty_vt_terminal_free(terminal: *mut core::ffi::c_void);
@@ -25,4 +23,3 @@ extern "C" {
 
     pub fn ghostty_vt_bytes_free(bytes: ghostty_vt_bytes_t);
 }
-

@@ -27,11 +27,6 @@ fn main() {
         manifest_dir.join("zig/lib.zig").display()
     );
 
-    let zig_build_enabled = std::env::var_os("CARGO_FEATURE_ZIG_BUILD").is_some();
-    if !zig_build_enabled {
-        return;
-    }
-
     if !ghostty_dir.exists() {
         panic!(
             "vendor/ghostty is missing; run `git submodule update --init --recursive` and retry"
@@ -42,7 +37,7 @@ fn main() {
     let zig_version = Command::new(&zig).arg("version").output().ok();
     if zig_version.is_none() {
         panic!(
-            "`zig` is required for --features zig-build; run `./scripts/bootstrap-zig.sh` \
+            "`zig` is required; run `./scripts/bootstrap-zig.sh` \
 to install Zig 0.14.1 into .context/zig/zig"
         );
     }

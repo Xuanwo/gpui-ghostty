@@ -1,4 +1,3 @@
-#[cfg(feature = "zig-build")]
 #[test]
 fn viewport_dump_contains_text() {
     let mut t = ghostty_vt::Terminal::new(80, 24).unwrap();
@@ -10,3 +9,4 @@ fn viewport_dump_contains_text() {
     assert!(s.contains("world"));
     assert!(s.contains("red"));
 }
+

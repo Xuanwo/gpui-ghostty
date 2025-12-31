@@ -4,9 +4,4 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[features]
-default = []
-zig-build = []
-
 [build-dependencies]
-

@@ -18,4 +18,3 @@
 
 - Discussion, reasoning, and summaries: Simplified Chinese.
 - All code, identifiers, comments, and Markdown documents: English only.
-

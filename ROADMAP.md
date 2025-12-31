@@ -34,7 +34,23 @@ This roadmap is intentionally scoped to **foundation + buildable scaffolding**. 
   - Optional `--features gpui` build path for GPUI crates
 - [x] Add minimal documentation for local development and version pinning.
 
-## Future Work (Out of Scope)
+### M0.1: VT Core (Must Finish)
+
+- [x] Provide a pinned Zig toolchain bootstrap script (Zig `0.14.1`) that installs into `.context/zig` (gitignored).
+- [x] Implement a minimal Zig-based VT core library (built from vendored Ghostty sources) that supports:
+  - terminal create/free
+  - feed bytes
+  - viewport dump as UTF-8
+- [x] Expose the VT core library via a Rust `sys` crate API (no bindgen required).
+- [x] Provide a safe Rust wrapper that can:
+  - create a terminal with a given size
+  - feed bytes
+  - dump the viewport as `String`
+- [x] Add a feature-gated validation path:
+  - `cargo check -p ghostty_vt_sys --features zig-build`
+  - `cargo test -p ghostty_vt --features zig-build`
+
+## Future Work
 
 - M1: Incremental damage updates, selection/copy, scrollback, bracketed paste, basic mouse.
 - M2: OSC title/link/clipboard, fuller keyboard encoding via Ghostty key encoder, mouse modes.

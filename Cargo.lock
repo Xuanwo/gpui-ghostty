@@ -5473,6 +5473,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vt_dump"
+version = "0.1.0"
+dependencies = [
+ "ghostty_vt",
+]
+
+[[package]]
 name = "waker-fn"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

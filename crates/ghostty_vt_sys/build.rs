@@ -10,6 +10,22 @@ fn main() {
 
     let ghostty_dir = workspace_root.join("vendor/ghostty");
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig.zon").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("include/ghostty_vt.h").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("zig/build.zig").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("zig/build.zig.zon").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("zig/lib.zig").display()
+    );
 
     let zig_build_enabled = std::env::var_os("CARGO_FEATURE_ZIG_BUILD").is_some();
     if !zig_build_enabled {
@@ -22,17 +38,43 @@ fn main() {
         );
     }
 
-    let zig_version = Command::new("zig").arg("version").output().ok();
+    let zig = find_zig(workspace_root);
+    let zig_version = Command::new(&zig).arg("version").output().ok();
     if zig_version.is_none() {
-        panic!("`zig` is required for --features zig-build, but it was not found in PATH");
+        panic!(
+            "`zig` is required for --features zig-build; run `./scripts/bootstrap-zig.sh` \
+to install Zig 0.14.1 into .context/zig/zig"
+        );
     }
 
-    // The pinned Ghostty tag (v1.2.3) does not ship a standalone `libghostty-vt` build target.
-    // Keep this as a hard error so the failure mode is obvious and actionable.
-    panic!(
-        "Ghostty v1.2.3 does not provide a `libghostty-vt` build target yet; \
-update the Ghostty submodule to a revision that exports `zig build lib-vt`, \
-then implement link/bindings in crates/ghostty_vt_sys"
-    );
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    let prefix = out_dir.join("zig-out");
+
+    let status = Command::new(&zig)
+        .current_dir(manifest_dir.join("zig"))
+        .arg("build")
+        .arg("-Doptimize=ReleaseFast")
+        .arg("--prefix")
+        .arg(&prefix)
+        .status()
+        .expect("failed to invoke zig");
+    if !status.success() {
+        panic!("zig build failed");
+    }
+
+    println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
+    println!("cargo:rustc-link-lib=static=ghostty_vt");
+    println!("cargo:rustc-link-lib=c");
 }
 
+fn find_zig(workspace_root: &std::path::Path) -> PathBuf {
+    if let Some(path) = std::env::var_os("ZIG") {
+        return PathBuf::from(path);
+    }
+
+    if Command::new("zig").arg("version").output().is_ok() {
+        return PathBuf::from("zig");
+    }
+
+    workspace_root.join(".context/zig/zig")
+}

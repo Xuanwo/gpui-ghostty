@@ -1,0 +1,13 @@
+[package]
+name = "vt_dump"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+zig-build = ["ghostty_vt/zig-build"]
+
+[dependencies]
+ghostty_vt = { path = "../../crates/ghostty_vt" }
+

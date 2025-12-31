@@ -367,6 +367,42 @@ pub mod view {
                     cx.notify();
                     return;
                 }
+                "up" => {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(b"\x1b[A");
+                        return;
+                    }
+                }
+                "down" => {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(b"\x1b[B");
+                        return;
+                    }
+                }
+                "right" => {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(b"\x1b[C");
+                        return;
+                    }
+                }
+                "left" => {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(b"\x1b[D");
+                        return;
+                    }
+                }
+                "escape" => {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(&[0x1b]);
+                        return;
+                    }
+                }
+                "delete" => {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(b"\x1b[3~");
+                        return;
+                    }
+                }
                 "enter" => {
                     if let Some(input) = self.input.as_ref() {
                         input.send(b"\r");
@@ -396,7 +432,7 @@ pub mod view {
 
             if keystroke.key == "backspace" {
                 if let Some(input) = self.input.as_ref() {
-                    input.send(&[0x08]);
+                    input.send(&[0x7f]);
                     return;
                 }
                 let _ = self.session.feed(&[0x08]);

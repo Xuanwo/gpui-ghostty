@@ -87,6 +87,11 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Track `OSC 52` clipboard updates from output bytes.
 - [x] Decode Base64 payload and write to the system clipboard.
 
+### M2.3: Basic Key Sequences for PTY (Minimal)
+
+- [x] Send arrow keys (`Up/Down/Left/Right`) to PTY as ANSI sequences.
+- [x] Send `Escape`, `Delete`, and `Backspace` to PTY with common sequences.
+
 ### M4.1: PTY Login Shell Example (Minimal)
 
 - [x] Add an example that spawns the user's login shell in a PTY.

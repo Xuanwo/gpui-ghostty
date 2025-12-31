@@ -152,6 +152,22 @@ export fn ghostty_vt_terminal_scroll_viewport(
     return 0;
 }
 
+export fn ghostty_vt_terminal_scroll_viewport_top(terminal_ptr: ?*anyopaque) callconv(.C) c_int {
+    if (terminal_ptr == null) return 1;
+    const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
+
+    handle.terminal.scrollViewport(.top) catch return 2;
+    return 0;
+}
+
+export fn ghostty_vt_terminal_scroll_viewport_bottom(terminal_ptr: ?*anyopaque) callconv(.C) c_int {
+    if (terminal_ptr == null) return 1;
+    const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
+
+    handle.terminal.scrollViewport(.bottom) catch return 2;
+    return 0;
+}
+
 export fn ghostty_vt_terminal_dump_viewport(terminal_ptr: ?*anyopaque) callconv(.C) ghostty_vt_bytes_t {
     if (terminal_ptr == null) return .{ .ptr = null, .len = 0 };
     const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));

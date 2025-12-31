@@ -67,6 +67,27 @@ impl Terminal {
             Err(Error::ScrollFailed(rc))
         }
     }
+
+    pub fn scroll_viewport_top(&mut self) -> Result<(), Error> {
+        let rc =
+            unsafe { ghostty_vt_sys::ghostty_vt_terminal_scroll_viewport_top(self.ptr.as_ptr()) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(Error::ScrollFailed(rc))
+        }
+    }
+
+    pub fn scroll_viewport_bottom(&mut self) -> Result<(), Error> {
+        let rc = unsafe {
+            ghostty_vt_sys::ghostty_vt_terminal_scroll_viewport_bottom(self.ptr.as_ptr())
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(Error::ScrollFailed(rc))
+        }
+    }
 }
 
 impl Drop for Terminal {

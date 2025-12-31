@@ -72,6 +72,11 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] When bracketed paste mode is enabled, wrap pasted content with `ESC[200~` and `ESC[201~`.
 - [x] Focus the view on mouse click.
 
+### M1.5: Scrollback Jump (Minimal)
+
+- [x] Add VT APIs to jump viewport to scrollback top/bottom.
+- [x] Bind `Home`/`End` keys to jump viewport top/bottom.
+
 ### M2.1: OSC Title (Minimal)
 
 - [x] Track OSC window title updates (`OSC 0` / `OSC 2`) from output bytes.
@@ -97,6 +102,8 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Always load and follow the latest user instructions (documented in `AGENTS.md`).
 - [x] Fix `basic_terminal` rendering when text is not visible (avoid black-on-black).
 - [x] Ask agents to do refactors while needed to make sure this projects can be well-maintained (documented in `AGENTS.md`).
+- [x] Use Rust 2024 edition across the workspace.
+- [x] Avoid over-splitting work (documented in `AGENTS.md`).
 
 ## Future Work
 

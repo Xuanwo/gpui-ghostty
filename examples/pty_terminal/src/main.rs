@@ -6,7 +6,7 @@ use std::time::Duration;
 use gpui::{App, AppContext, Application, KeyBinding, WindowOptions};
 use gpui_ghostty_terminal::view::{Copy, Paste, TerminalInput, TerminalView};
 use gpui_ghostty_terminal::{TerminalConfig, TerminalSession};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 fn main() {
     Application::new().run(|cx: &mut App| {
@@ -82,24 +82,26 @@ fn main() {
 
             let view_for_task = view.clone();
             window
-                .spawn(cx, async move |cx| loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(16))
-                        .await;
-                    let mut batch = Vec::new();
-                    while let Ok(chunk) = stdout_rx.try_recv() {
-                        batch.extend_from_slice(&chunk);
-                    }
-                    if batch.is_empty() {
-                        continue;
-                    }
+                .spawn(cx, async move |cx| {
+                    loop {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(16))
+                            .await;
+                        let mut batch = Vec::new();
+                        while let Ok(chunk) = stdout_rx.try_recv() {
+                            batch.extend_from_slice(&chunk);
+                        }
+                        if batch.is_empty() {
+                            continue;
+                        }
 
-                    cx.update(|_, cx| {
-                        view_for_task.update(cx, |this, cx| {
-                            this.feed_output_bytes(&batch, cx);
-                        });
-                    })
-                    .ok();
+                        cx.update(|_, cx| {
+                            view_for_task.update(cx, |this, cx| {
+                                this.feed_output_bytes(&batch, cx);
+                            });
+                        })
+                        .ok();
+                    }
                 })
                 .detach();
 

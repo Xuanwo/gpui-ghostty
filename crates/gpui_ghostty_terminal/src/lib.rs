@@ -164,13 +164,21 @@ impl TerminalSession {
     pub fn scroll_viewport(&mut self, delta_lines: i32) -> Result<(), Error> {
         self.terminal.scroll_viewport(delta_lines)
     }
+
+    pub fn scroll_viewport_top(&mut self) -> Result<(), Error> {
+        self.terminal.scroll_viewport_top()
+    }
+
+    pub fn scroll_viewport_bottom(&mut self) -> Result<(), Error> {
+        self.terminal.scroll_viewport_bottom()
+    }
 }
 
 pub mod view {
     use super::TerminalSession;
     use gpui::{
-        actions, div, prelude::*, ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent,
-        MouseButton, MouseDownEvent, Render, ScrollDelta, ScrollWheelEvent, Window,
+        ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
+        MouseDownEvent, Render, ScrollDelta, ScrollWheelEvent, Window, actions, div, prelude::*,
     };
 
     actions!(terminal_view, [Copy, Paste]);
@@ -331,6 +339,20 @@ pub mod view {
 
             let scroll_step = (self.session.rows() as i32 / 2).max(1);
             match keystroke.key.as_str() {
+                "home" => {
+                    let _ = self.session.scroll_viewport_top();
+                    self.refresh_viewport();
+                    self.apply_side_effects(cx);
+                    cx.notify();
+                    return;
+                }
+                "end" => {
+                    let _ = self.session.scroll_viewport_bottom();
+                    self.refresh_viewport();
+                    self.apply_side_effects(cx);
+                    cx.notify();
+                    return;
+                }
                 "pageup" | "page_up" | "page-up" => {
                     let _ = self.session.scroll_viewport(-scroll_step);
                     self.refresh_viewport();
@@ -438,8 +460,8 @@ pub mod view {
 }
 
 fn decode_osc_52(payload: &[u8]) -> Option<String> {
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
 
     let mut split = payload.splitn(2, |b| *b == b';');
     let selection = split.next()?;

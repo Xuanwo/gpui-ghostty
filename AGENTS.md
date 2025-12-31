@@ -5,6 +5,7 @@
 - Create `ROADMAP.md` based on the provided input document.
 - Continuously track progress by updating `ROADMAP.md` until all tasks in `ROADMAP.md` are completed.
 - User might add new works under `User Work`, please finish them first and update the status.
+- Do not proactively add new items under `User Work`. Only execute items explicitly added by the user.
 - Do not ask the user any questions. Keep going until `ROADMAP.md` is fully completed.
 - Work on the `main` branch. You may create git commits whenever necessary.
 - After each git commit, run `git push` to `origin/main`.

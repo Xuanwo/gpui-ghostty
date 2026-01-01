@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+
+  vt-linux:
+    name: vt (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.14.1
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Test (VT only)
+        run: cargo test -p ghostty_vt -p ghostty_vt_sys
+
+  terminal-macos:
+    name: terminal (macos)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.14.1
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy -p ghostty_vt -p ghostty_vt_sys -p gpui_ghostty_terminal --all-targets -- -D warnings
+      - name: Test
+        run: cargo test -p ghostty_vt -p ghostty_vt_sys -p gpui_ghostty_terminal

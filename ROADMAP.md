@@ -99,6 +99,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Add an embed-friendly option to disable `Window::set_window_title` updates from `TerminalView`.
 - [x] Add Apache-2.0 license (LICENSE + crate metadata + docs).
 - [x] Remove obsolete `.gitkeep` file.
+- [x] Initialize CI (GitHub Actions).
 
 ## Future Work
 

@@ -383,6 +383,13 @@ impl TerminalSession {
         self.terminal.dump_viewport_row_cell_styles(row)
     }
 
+    pub fn dump_viewport_row_style_runs(
+        &self,
+        row: u16,
+    ) -> Result<Vec<ghostty_vt::StyleRun>, Error> {
+        self.terminal.dump_viewport_row_style_runs(row)
+    }
+
     pub fn cursor_position(&self) -> Option<(u16, u16)> {
         self.terminal.cursor_position()
     }
@@ -546,7 +553,7 @@ fn value_to_after_semicolon_state(ps: u32) -> OscQueryScanState {
 
 pub mod view {
     use super::TerminalSession;
-    use ghostty_vt::{CellStyle, KeyModifiers, Rgb, encode_key_named};
+    use ghostty_vt::{KeyModifiers, Rgb, StyleRun, encode_key_named};
     use gpui::{
         App, Bounds, ClipboardItem, Context, Element, ElementId, ElementInputHandler,
         EntityInputHandler, FocusHandle, GlobalElementId, IntoElement, KeyDownEvent, LayoutId,
@@ -652,8 +659,7 @@ pub mod view {
         viewport: SharedString,
         viewport_lines: Vec<String>,
         viewport_line_offsets: Vec<usize>,
-        viewport_cell_styles: Vec<Vec<CellStyle>>,
-        viewport_row_bg_runs: Vec<Option<Vec<ViewportBgRun>>>,
+        viewport_style_runs: Vec<Vec<StyleRun>>,
         line_layouts: Vec<Option<gpui::ShapedLine>>,
         line_layout_key: Option<(Pixels, Pixels)>,
         focus_handle: FocusHandle,
@@ -690,8 +696,7 @@ pub mod view {
                 viewport: SharedString::default(),
                 viewport_lines: Vec::new(),
                 viewport_line_offsets: Vec::new(),
-                viewport_cell_styles: Vec::new(),
-                viewport_row_bg_runs: Vec::new(),
+                viewport_style_runs: Vec::new(),
                 line_layouts: Vec::new(),
                 line_layout_key: None,
                 focus_handle,
@@ -717,8 +722,7 @@ pub mod view {
                 viewport: SharedString::default(),
                 viewport_lines: Vec::new(),
                 viewport_line_offsets: Vec::new(),
-                viewport_cell_styles: Vec::new(),
-                viewport_row_bg_runs: Vec::new(),
+                viewport_style_runs: Vec::new(),
                 line_layouts: Vec::new(),
                 line_layout_key: None,
                 focus_handle,
@@ -846,10 +850,9 @@ pub mod view {
             if crate::update_viewport_string(&mut self.viewport, viewport) {
                 self.viewport_lines = crate::split_viewport_lines(self.viewport.as_str());
                 self.viewport_line_offsets = Self::compute_viewport_line_offsets(&self.viewport_lines);
-                self.viewport_cell_styles = (0..self.session.rows())
-                    .map(|row| self.session.dump_viewport_row_cell_styles(row).unwrap_or_default())
+                self.viewport_style_runs = (0..self.session.rows())
+                    .map(|row| self.session.dump_viewport_row_style_runs(row).unwrap_or_default())
                     .collect();
-                self.viewport_row_bg_runs = vec![None; self.viewport_cell_styles.len()];
                 self.line_layouts.clear();
                 self.line_layout_key = None;
                 self.selection = None;
@@ -891,11 +894,7 @@ pub mod view {
                 self.refresh_viewport();
                 return true;
             }
-            if self.viewport_cell_styles.len() != expected_rows {
-                self.refresh_viewport();
-                return true;
-            }
-            if self.viewport_row_bg_runs.len() != expected_rows {
+            if self.viewport_style_runs.len() != expected_rows {
                 self.refresh_viewport();
                 return true;
             }
@@ -917,13 +916,10 @@ pub mod view {
                 let line = line.strip_suffix('\n').unwrap_or(line.as_str());
                 self.viewport_lines[row].clear();
                 self.viewport_lines[row].push_str(line);
-                self.viewport_cell_styles[row] = self
+                self.viewport_style_runs[row] = self
                     .session
-                    .dump_viewport_row_cell_styles(row as u16)
+                    .dump_viewport_row_style_runs(row as u16)
                     .unwrap_or_default();
-                if row < self.viewport_row_bg_runs.len() {
-                    self.viewport_row_bg_runs[row] = None;
-                }
                 if row < self.line_layouts.len() {
                     self.line_layouts[row] = None;
                 }
@@ -1611,13 +1607,6 @@ pub mod view {
         cursor: Option<PaintQuad>,
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct ViewportBgRun {
-        start_col: usize,
-        end_col: usize,
-        bg: Rgb,
-    }
-
     const CELL_STYLE_FLAG_BOLD: u8 = 0x02;
     const CELL_STYLE_FLAG_ITALIC: u8 = 0x04;
     const CELL_STYLE_FLAG_UNDERLINE: u8 = 0x08;
@@ -1901,27 +1890,26 @@ pub mod view {
                     let text = SharedString::from(line.clone());
                     let mut runs: Vec<TextRun> = Vec::new();
 
-                    if let Some(cell_styles) = view.viewport_cell_styles.get(idx)
-                        && !cell_styles.is_empty()
+                    if let Some(style_runs) = view.viewport_style_runs.get(idx)
+                        && !style_runs.is_empty()
                     {
                         let mut byte_pos = 0usize;
-                        let mut seg_start_col: u16 = 1;
-                        let mut seg_key = TextRunKey {
-                            fg: cell_styles[0].fg,
-                            flags: cell_styles[0].flags
-                                & (CELL_STYLE_FLAG_BOLD
-                                    | CELL_STYLE_FLAG_ITALIC
-                                    | CELL_STYLE_FLAG_UNDERLINE
-                                    | CELL_STYLE_FLAG_FAINT
-                                    | CELL_STYLE_FLAG_STRIKETHROUGH),
-                        };
+                        for style in style_runs.iter() {
+                            let key = TextRunKey {
+                                fg: style.fg,
+                                flags: style.flags
+                                    & (CELL_STYLE_FLAG_BOLD
+                                        | CELL_STYLE_FLAG_ITALIC
+                                        | CELL_STYLE_FLAG_UNDERLINE
+                                        | CELL_STYLE_FLAG_FAINT
+                                        | CELL_STYLE_FLAG_STRIKETHROUGH),
+                            };
 
-                        let mut emit_segment = |start_col: u16, end_col: u16, key: TextRunKey| {
                             let start =
-                                byte_index_for_column_in_line(text.as_str(), start_col).min(text.len());
+                                byte_index_for_column_in_line(text.as_str(), style.start_col).min(text.len());
                             let end = byte_index_for_column_in_line(
                                 text.as_str(),
-                                end_col.saturating_add(1),
+                                style.end_col.saturating_add(1),
                             )
                             .min(text.len());
 
@@ -1945,33 +1933,7 @@ pub mod view {
                                 ));
                                 byte_pos = end;
                             }
-                        };
-
-                        for (i, style) in cell_styles.iter().enumerate().skip(1) {
-                            let key = TextRunKey {
-                                fg: style.fg,
-                                flags: style.flags
-                                    & (CELL_STYLE_FLAG_BOLD
-                                        | CELL_STYLE_FLAG_ITALIC
-                                        | CELL_STYLE_FLAG_UNDERLINE
-                                        | CELL_STYLE_FLAG_FAINT
-                                        | CELL_STYLE_FLAG_STRIKETHROUGH),
-                            };
-
-                            if key == seg_key {
-                                continue;
-                            }
-
-                            emit_segment(seg_start_col, i as u16, seg_key);
-                            seg_start_col = i as u16 + 1;
-                            seg_key = key;
                         }
-
-                        emit_segment(
-                            seg_start_col,
-                            cell_styles.len().min(u16::MAX as usize) as u16,
-                            seg_key,
-                        );
 
                         if byte_pos < text.len() {
                             runs.push(TextRun {
@@ -2018,69 +1980,25 @@ pub mod view {
                     let origin = bounds.origin;
                     let mut quads: Vec<PaintQuad> = Vec::new();
 
-                    self.view.update(cx, |view, _cx| {
-                        if view.viewport_row_bg_runs.len() != view.viewport_cell_styles.len() {
-                            view.viewport_row_bg_runs = vec![None; view.viewport_cell_styles.len()];
-                        }
-
-                        for (row, styles) in view.viewport_cell_styles.iter().enumerate() {
-                            if row >= view.viewport_row_bg_runs.len() {
-                                break;
-                            }
-                            if view.viewport_row_bg_runs[row].is_some() {
-                                continue;
-                            }
-                            if styles.is_empty() {
-                                view.viewport_row_bg_runs[row] = Some(Vec::new());
-                                continue;
-                            }
-
-                            let mut runs: Vec<ViewportBgRun> = Vec::new();
-                            let mut run_start: usize = 0;
-                            let mut run_bg = styles[0].bg;
-
-                            for (col, style) in styles.iter().enumerate().skip(1) {
-                                if style.bg == run_bg {
-                                    continue;
-                                }
-
-                                if run_bg != default_bg && col > run_start {
-                                    runs.push(ViewportBgRun {
-                                        start_col: run_start,
-                                        end_col: col,
-                                        bg: run_bg,
-                                    });
-                                }
-
-                                run_start = col;
-                                run_bg = style.bg;
-                            }
-
-                            if run_bg != default_bg && styles.len() > run_start {
-                                runs.push(ViewportBgRun {
-                                    start_col: run_start,
-                                    end_col: styles.len(),
-                                    bg: run_bg,
-                                });
-                            }
-
-                            view.viewport_row_bg_runs[row] = Some(runs);
-                        }
-                    });
-
                     let view = self.view.read(cx);
-                    for (row, runs) in view.viewport_row_bg_runs.iter().enumerate() {
-                        let Some(runs) = runs.as_ref() else {
-                            continue;
-                        };
+                    for (row, runs) in view.viewport_style_runs.iter().enumerate() {
                         if runs.is_empty() {
                             continue;
                         }
 
                         let y = origin.y + line_height * row as f32;
-                        for run in runs {
-                            let x = origin.x + px(cell_width * run.start_col as f32);
-                            let w = px(cell_width * (run.end_col - run.start_col) as f32);
+                        for run in runs.iter() {
+                            if run.bg == default_bg {
+                                continue;
+                            }
+
+                            let x = origin.x
+                                + px(cell_width * (run.start_col.saturating_sub(1)) as f32);
+                            let w = px(
+                                cell_width
+                                    * (run.end_col.saturating_sub(run.start_col).saturating_add(1))
+                                        as f32,
+                            );
                             let color = rgba(
                                 (u32::from(run.bg.r) << 24)
                                     | (u32::from(run.bg.g) << 16)
@@ -2155,11 +2073,13 @@ pub mod view {
                 let bg = {
                     let view = self.view.read(cx);
                     let row_index = row.saturating_sub(1) as usize;
-                    let col_index = col.saturating_sub(1) as usize;
-                    view.viewport_cell_styles
+                    view.viewport_style_runs
                         .get(row_index)
-                        .and_then(|row| row.get(col_index))
-                        .map(|style| style.bg)
+                        .and_then(|runs| {
+                            runs.iter().find_map(|run| {
+                                (col >= run.start_col && col <= run.end_col).then_some(run.bg)
+                            })
+                        })
                         .unwrap_or(Rgb { r: 0, g: 0, b: 0 })
                 };
 
@@ -2245,7 +2165,8 @@ pub mod view {
                     let view = self.view.read(cx);
                     for (row, line) in view.viewport_lines.iter().enumerate() {
                         let y = bounds.top() + line_height * row as f32;
-                        let styles = view.viewport_cell_styles.get(row).map(|v| v.as_slice());
+                        let runs = view.viewport_style_runs.get(row).map(|v| v.as_slice());
+                        let mut run_idx: usize = 0;
 
                         let mut col = 1usize;
                         for ch in line.chars() {
@@ -2255,12 +2176,23 @@ pub mod view {
                             }
 
                             if let Some((_, _)) = box_drawing_mask(ch) {
-                                let fg = styles
-                                    .and_then(|s| s.get(col.saturating_sub(1)))
-                                    .map(|style| {
+                                let fg = runs
+                                    .and_then(|runs| {
+                                        while let Some(run) = runs.get(run_idx) {
+                                            if (col as u16) <= run.end_col {
+                                                break;
+                                            }
+                                            run_idx = run_idx.saturating_add(1);
+                                        }
+                                        runs.get(run_idx).and_then(|run| {
+                                            (col as u16 >= run.start_col && (col as u16) <= run.end_col)
+                                                .then_some(run)
+                                        })
+                                    })
+                                    .map(|run| {
                                         let key = TextRunKey {
-                                            fg: style.fg,
-                                            flags: style.flags
+                                            fg: run.fg,
+                                            flags: run.flags
                                                 & (CELL_STYLE_FLAG_FAINT
                                                     | CELL_STYLE_FLAG_BOLD
                                                     | CELL_STYLE_FLAG_ITALIC

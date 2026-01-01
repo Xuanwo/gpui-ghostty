@@ -324,6 +324,185 @@ export fn ghostty_vt_terminal_dump_viewport_row_cell_styles(
     return .{ .ptr = slice.ptr, .len = slice.len };
 }
 
+const StyleRun = extern struct {
+    start_col: u16,
+    end_col: u16,
+    fg_r: u8,
+    fg_g: u8,
+    fg_b: u8,
+    bg_r: u8,
+    bg_g: u8,
+    bg_b: u8,
+    flags: u8,
+    reserved: u8,
+};
+
+fn resolvedStyle(palette: *const terminal.color.Palette, s: anytype) struct {
+    fg: terminal.color.RGB,
+    bg: terminal.color.RGB,
+    flags: u8,
+} {
+    const default_fg: terminal.color.RGB = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
+    const default_bg: terminal.color.RGB = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
+
+    var flags: u8 = 0;
+    if (s.flags.inverse) flags |= 0x01;
+    if (s.flags.bold) flags |= 0x02;
+    if (s.flags.italic) flags |= 0x04;
+    if (s.flags.underline != .none) flags |= 0x08;
+    if (s.flags.faint) flags |= 0x10;
+    if (s.flags.invisible) flags |= 0x20;
+    if (s.flags.strikethrough) flags |= 0x40;
+
+    const fg = s.fg(.{ .default = default_fg, .palette = palette, .bold = null });
+    return .{ .fg = fg, .bg = default_bg, .flags = flags };
+}
+
+export fn ghostty_vt_terminal_dump_viewport_row_style_runs(
+    terminal_ptr: ?*anyopaque,
+    row: u16,
+) callconv(.C) ghostty_vt_bytes_t {
+    if (terminal_ptr == null) return .{ .ptr = null, .len = 0 };
+    const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
+
+    const pt: terminal.point.Point = .{ .viewport = .{ .x = 0, .y = row } };
+    const pin = handle.terminal.screen.pages.pin(pt) orelse return .{ .ptr = null, .len = 0 };
+    const cells = pin.cells(.all);
+
+    const palette: *const terminal.color.Palette = &handle.terminal.color_palette.colors;
+
+    const alloc = std.heap.c_allocator;
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+
+    if (cells.len == 0) {
+        const slice = out.toOwnedSlice() catch return .{ .ptr = null, .len = 0 };
+        return .{ .ptr = slice.ptr, .len = slice.len };
+    }
+
+    var current_style_id = cells[0].style_id;
+    var current_style = pin.style(&cells[0]);
+    const defaults = resolvedStyle(palette, current_style);
+    const default_bg: terminal.color.RGB = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
+
+    var current_flags = defaults.flags;
+    var current_base_fg = defaults.fg;
+    var current_inverse = current_style.flags.inverse;
+    var current_invisible = current_style.flags.invisible;
+
+    var current_bg = current_style.bg(&cells[0], palette) orelse default_bg;
+    var current_fg = current_base_fg;
+    if (current_inverse) {
+        const tmp = current_fg;
+        current_fg = current_bg;
+        current_bg = tmp;
+    }
+    if (current_invisible) {
+        current_fg = current_bg;
+    }
+
+    var current_resolved = .{ .fg = current_fg, .bg = current_bg, .flags = current_flags };
+    var run_start: u16 = 1;
+
+    var col_idx: usize = 1;
+    while (col_idx < cells.len) : (col_idx += 1) {
+        const cell = &cells[col_idx];
+        if (cell.style_id != current_style_id) {
+            const end_col: u16 = @intCast(col_idx);
+            const rec = StyleRun{
+                .start_col = run_start,
+                .end_col = end_col,
+                .fg_r = current_resolved.fg.r,
+                .fg_g = current_resolved.fg.g,
+                .fg_b = current_resolved.fg.b,
+                .bg_r = current_resolved.bg.r,
+                .bg_g = current_resolved.bg.g,
+                .bg_b = current_resolved.bg.b,
+                .flags = current_resolved.flags,
+                .reserved = 0,
+            };
+            out.appendSlice(std.mem.asBytes(&rec)) catch return .{ .ptr = null, .len = 0 };
+
+            current_style_id = cell.style_id;
+            current_style = pin.style(cell);
+            const resolved = resolvedStyle(palette, current_style);
+            current_flags = resolved.flags;
+            current_base_fg = resolved.fg;
+            current_inverse = current_style.flags.inverse;
+            current_invisible = current_style.flags.invisible;
+
+            run_start = @intCast(col_idx + 1);
+
+            const bg_cell = current_style.bg(cell, palette) orelse default_bg;
+            var fg_cell = current_base_fg;
+            var bg = bg_cell;
+            if (current_inverse) {
+                const tmp = fg_cell;
+                fg_cell = bg;
+                bg = tmp;
+            }
+            if (current_invisible) {
+                fg_cell = bg;
+            }
+
+            current_resolved = .{ .fg = fg_cell, .bg = bg, .flags = current_flags };
+            continue;
+        }
+
+        const bg_cell = current_style.bg(cell, palette) orelse default_bg;
+        var fg_cell = current_base_fg;
+        var bg = bg_cell;
+        if (current_inverse) {
+            const tmp = fg_cell;
+            fg_cell = bg;
+            bg = tmp;
+        }
+        if (current_invisible) {
+            fg_cell = bg;
+        }
+
+        const same = fg_cell.r == current_resolved.fg.r and fg_cell.g == current_resolved.fg.g and fg_cell.b == current_resolved.fg.b and
+            bg.r == current_resolved.bg.r and bg.g == current_resolved.bg.g and bg.b == current_resolved.bg.b and
+            current_flags == current_resolved.flags;
+        if (same) continue;
+
+        const end_col: u16 = @intCast(col_idx);
+        const rec = StyleRun{
+            .start_col = run_start,
+            .end_col = end_col,
+            .fg_r = current_resolved.fg.r,
+            .fg_g = current_resolved.fg.g,
+            .fg_b = current_resolved.fg.b,
+            .bg_r = current_resolved.bg.r,
+            .bg_g = current_resolved.bg.g,
+            .bg_b = current_resolved.bg.b,
+            .flags = current_resolved.flags,
+            .reserved = 0,
+        };
+        out.appendSlice(std.mem.asBytes(&rec)) catch return .{ .ptr = null, .len = 0 };
+
+        run_start = @intCast(col_idx + 1);
+        current_resolved = .{ .fg = fg_cell, .bg = bg, .flags = current_flags };
+    }
+
+    const last = StyleRun{
+        .start_col = run_start,
+        .end_col = @intCast(cells.len),
+        .fg_r = current_resolved.fg.r,
+        .fg_g = current_resolved.fg.g,
+        .fg_b = current_resolved.fg.b,
+        .bg_r = current_resolved.bg.r,
+        .bg_g = current_resolved.bg.g,
+        .bg_b = current_resolved.bg.b,
+        .flags = current_resolved.flags,
+        .reserved = 0,
+    };
+    out.appendSlice(std.mem.asBytes(&last)) catch return .{ .ptr = null, .len = 0 };
+
+    const slice = out.toOwnedSlice() catch return .{ .ptr = null, .len = 0 };
+    return .{ .ptr = slice.ptr, .len = slice.len };
+}
+
 export fn ghostty_vt_terminal_take_dirty_viewport_rows(
     terminal_ptr: ?*anyopaque,
     rows: u16,

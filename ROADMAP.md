@@ -62,6 +62,9 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M5.13: Ctrl-C Cancel (send ETX for ctrl key chords)
 - [x] M5.14: Startup Perf (style-run dump, avoid per-cell styles)
 - [x] M5.15: Viewport Perf (avoid full viewport rebuild per chunk)
+- [x] M6.1: Default Colors (configurable fg/bg for OSC 10/11 + renderer clear)
+- [x] M6.2: Background Clear (always paint base background to avoid artifacts)
+- [x] M6.3: Terminal Env Defaults (TERM/COLORTERM for examples)
 
 ## User Work
 

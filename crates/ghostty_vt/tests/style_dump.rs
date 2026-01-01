@@ -72,3 +72,40 @@ fn viewport_row_cell_styles_reflect_faint_underline_and_strikethrough_flags() {
     assert_eq!(styles.len(), 4);
     assert_ne!(styles[0].flags & 0x40, 0);
 }
+
+#[test]
+fn default_colors_can_be_overridden() {
+    let mut t = Terminal::new(2, 1).unwrap();
+    t.set_default_colors(
+        Rgb {
+            r: 0x00,
+            g: 0x00,
+            b: 0x00,
+        },
+        Rgb {
+            r: 0xFF,
+            g: 0xFF,
+            b: 0xFF,
+        },
+    );
+    t.feed(b"X").unwrap();
+
+    let styles = t.dump_viewport_row_cell_styles(0).unwrap();
+    assert_eq!(styles.len(), 2);
+    assert_eq!(
+        styles[0].fg,
+        Rgb {
+            r: 0x00,
+            g: 0x00,
+            b: 0x00
+        }
+    );
+    assert_eq!(
+        styles[0].bg,
+        Rgb {
+            r: 0xFF,
+            g: 0xFF,
+            b: 0xFF
+        }
+    );
+}

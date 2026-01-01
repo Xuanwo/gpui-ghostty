@@ -1,4 +1,4 @@
-use ghostty_vt::{Error, Terminal};
+use ghostty_vt::{Error, Rgb, Terminal};
 
 fn split_viewport_lines(viewport: &str) -> Vec<String> {
     let viewport = viewport.strip_suffix('\n').unwrap_or(viewport);
@@ -78,11 +78,22 @@ fn sgr_mouse_sequence(button_value: u8, col: u16, row: u16, pressed: bool) -> St
 pub struct TerminalConfig {
     pub cols: u16,
     pub rows: u16,
+    pub default_fg: Rgb,
+    pub default_bg: Rgb,
 }
 
 impl Default for TerminalConfig {
     fn default() -> Self {
-        Self { cols: 80, rows: 24 }
+        Self {
+            cols: 80,
+            rows: 24,
+            default_fg: Rgb {
+                r: 0xFF,
+                g: 0xFF,
+                b: 0xFF,
+            },
+            default_bg: Rgb { r: 0x00, g: 0x00, b: 0x00 },
+        }
     }
 }
 
@@ -103,9 +114,11 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn new(config: TerminalConfig) -> Result<Self, Error> {
+        let mut terminal = Terminal::new(config.cols, config.rows)?;
+        terminal.set_default_colors(config.default_fg, config.default_bg);
         Ok(Self {
             config,
-            terminal: Terminal::new(config.cols, config.rows)?,
+            terminal,
             bracketed_paste_enabled: false,
             mouse_x10_enabled: false,
             mouse_button_event_enabled: false,
@@ -125,6 +138,14 @@ impl TerminalSession {
 
     pub fn rows(&self) -> u16 {
         self.config.rows
+    }
+
+    pub fn default_foreground(&self) -> Rgb {
+        self.config.default_fg
+    }
+
+    pub fn default_background(&self) -> Rgb {
+        self.config.default_bg
     }
 
     pub fn bracketed_paste_enabled(&self) -> bool {
@@ -344,8 +365,14 @@ impl TerminalSession {
 
             if let Some(query) = osc {
                 let rgb = match query {
-                    OscQuery::ForegroundColor => (0xFFu8, 0xFFu8, 0xFFu8),
-                    OscQuery::BackgroundColor => (0x00u8, 0x00u8, 0x00u8),
+                    OscQuery::ForegroundColor => {
+                        let fg = self.config.default_fg;
+                        (fg.r, fg.g, fg.b)
+                    }
+                    OscQuery::BackgroundColor => {
+                        let bg = self.config.default_bg;
+                        (bg.r, bg.g, bg.b)
+                    }
                 };
                 let resp = osc_color_query_response(query, rgb);
                 send(resp.as_bytes());
@@ -398,7 +425,8 @@ impl TerminalSession {
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), Error> {
-        self.config = TerminalConfig { cols, rows };
+        self.config.cols = cols;
+        self.config.rows = rows;
         self.terminal.resize(cols, rows)
     }
 
@@ -1899,7 +1927,8 @@ pub mod view {
             style.font_family = font.family.clone();
             style.font_features = crate::default_terminal_font_features();
             style.font_fallbacks = font.fallbacks.clone();
-            style.color = gpui::white();
+            let default_fg = { self.view.read(cx).session.default_foreground() };
+            style.color = hsla_from_rgb(default_fg);
             let rem_size = window.rem_size();
             let font_size = style.font_size.to_pixels(rem_size);
             let line_height = style.line_height.to_pixels(style.font_size, rem_size);
@@ -2021,9 +2050,9 @@ pub mod view {
                 }
             });
 
+            let default_bg = { self.view.read(cx).session.default_background() };
             let background_quads = crate::cell_metrics(window, &font)
                 .map(|(cell_width, _)| {
-                    let default_bg = Rgb { r: 0, g: 0, b: 0 };
                     let origin = bounds.origin;
                     let mut quads: Vec<PaintQuad> = Vec::new();
 
@@ -2127,7 +2156,7 @@ pub mod view {
                                 (col >= run.start_col && col <= run.end_col).then_some(run.bg)
                             })
                         })
-                        .unwrap_or(Rgb { r: 0, g: 0, b: 0 })
+                        .unwrap_or(default_bg)
                 };
 
                 let cell_len = {
@@ -2322,7 +2351,8 @@ pub mod view {
             );
 
             window.paint_layer(bounds, |window| {
-                window.paint_quad(fill(bounds, gpui::black()));
+                let default_bg = { self.view.read(cx).session.default_background() };
+                window.paint_quad(fill(bounds, hsla_from_rgb(default_bg)));
 
                 for quad in prepaint.background_quads.drain(..) {
                     window.paint_quad(quad);
@@ -2772,6 +2802,44 @@ mod tests {
         let expected =
             super::osc_color_query_response(super::OscQuery::BackgroundColor, (0x00, 0x00, 0x00));
         assert_eq!(response, expected.as_bytes());
+    }
+
+    #[test]
+    fn responds_to_osc_10_and_11_use_configured_defaults() {
+        let config = TerminalConfig {
+            default_fg: ghostty_vt::Rgb {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33,
+            },
+            default_bg: ghostty_vt::Rgb {
+                r: 0x44,
+                g: 0x55,
+                b: 0x66,
+            },
+            ..TerminalConfig::default()
+        };
+        let mut session = TerminalSession::new(config).unwrap();
+        let mut response = Vec::new();
+
+        session
+            .feed_with_pty_responses(b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\", |bytes| {
+                response.extend_from_slice(bytes);
+            })
+            .unwrap();
+
+        let expected_fg = super::osc_color_query_response(
+            super::OscQuery::ForegroundColor,
+            (0x11, 0x22, 0x33),
+        );
+        let expected_bg = super::osc_color_query_response(
+            super::OscQuery::BackgroundColor,
+            (0x44, 0x55, 0x66),
+        );
+        let mut expected = Vec::new();
+        expected.extend_from_slice(expected_fg.as_bytes());
+        expected.extend_from_slice(expected_bg.as_bytes());
+        assert_eq!(response, expected);
     }
 
     #[test]

@@ -11,6 +11,16 @@ unsafe extern "C" {
     pub fn ghostty_vt_terminal_new(cols: u16, rows: u16) -> *mut core::ffi::c_void;
     pub fn ghostty_vt_terminal_free(terminal: *mut core::ffi::c_void);
 
+    pub fn ghostty_vt_terminal_set_default_colors(
+        terminal: *mut core::ffi::c_void,
+        fg_r: u8,
+        fg_g: u8,
+        fg_b: u8,
+        bg_r: u8,
+        bg_g: u8,
+        bg_b: u8,
+    );
+
     pub fn ghostty_vt_terminal_feed(
         terminal: *mut core::ffi::c_void,
         bytes: *const u8,

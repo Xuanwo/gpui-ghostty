@@ -9,6 +9,8 @@ const TerminalHandle = struct {
     terminal: terminal.Terminal,
     stream: terminal.Stream(*Handler),
     handler: Handler,
+    default_fg: terminal.color.RGB,
+    default_bg: terminal.color.RGB,
 
     fn init(alloc: Allocator, cols: u16, rows: u16) !*TerminalHandle {
         const handle = try alloc.create(TerminalHandle);
@@ -28,6 +30,8 @@ const TerminalHandle = struct {
             .terminal = t,
             .handler = .{ .terminal = undefined },
             .stream = undefined,
+            .default_fg = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
+            .default_bg = .{ .r = 0x00, .g = 0x00, .b = 0x00 },
         };
         handle.handler.terminal = &handle.terminal;
         handle.stream = terminal.Stream(*Handler).init(&handle.handler);
@@ -140,6 +144,21 @@ export fn ghostty_vt_terminal_free(terminal_ptr: ?*anyopaque) callconv(.C) void 
     if (terminal_ptr == null) return;
     const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
     handle.deinit();
+}
+
+export fn ghostty_vt_terminal_set_default_colors(
+    terminal_ptr: ?*anyopaque,
+    fg_r: u8,
+    fg_g: u8,
+    fg_b: u8,
+    bg_r: u8,
+    bg_g: u8,
+    bg_b: u8,
+) callconv(.C) void {
+    if (terminal_ptr == null) return;
+    const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
+    handle.default_fg = .{ .r = fg_r, .g = fg_g, .b = fg_b };
+    handle.default_bg = .{ .r = bg_r, .g = bg_g, .b = bg_b };
 }
 
 export fn ghostty_vt_terminal_feed(
@@ -273,8 +292,8 @@ export fn ghostty_vt_terminal_dump_viewport_row_cell_styles(
     const pin = handle.terminal.screen.pages.pin(pt) orelse return .{ .ptr = null, .len = 0 };
     const cells = pin.cells(.all);
 
-    const default_fg: terminal.color.RGB = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
-    const default_bg: terminal.color.RGB = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
+    const default_fg: terminal.color.RGB = handle.default_fg;
+    const default_bg: terminal.color.RGB = handle.default_bg;
     const palette: *const terminal.color.Palette = &handle.terminal.color_palette.colors;
 
     const alloc = std.heap.c_allocator;
@@ -337,14 +356,16 @@ const StyleRun = extern struct {
     reserved: u8,
 };
 
-fn resolvedStyle(palette: *const terminal.color.Palette, s: anytype) struct {
+fn resolvedStyle(
+    default_fg: terminal.color.RGB,
+    default_bg: terminal.color.RGB,
+    palette: *const terminal.color.Palette,
+    s: anytype,
+) struct {
     fg: terminal.color.RGB,
     bg: terminal.color.RGB,
     flags: u8,
 } {
-    const default_fg: terminal.color.RGB = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
-    const default_bg: terminal.color.RGB = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
-
     var flags: u8 = 0;
     if (s.flags.inverse) flags |= 0x01;
     if (s.flags.bold) flags |= 0x02;
@@ -369,6 +390,8 @@ export fn ghostty_vt_terminal_dump_viewport_row_style_runs(
     const pin = handle.terminal.screen.pages.pin(pt) orelse return .{ .ptr = null, .len = 0 };
     const cells = pin.cells(.all);
 
+    const default_fg: terminal.color.RGB = handle.default_fg;
+    const default_bg: terminal.color.RGB = handle.default_bg;
     const palette: *const terminal.color.Palette = &handle.terminal.color_palette.colors;
 
     const alloc = std.heap.c_allocator;
@@ -382,8 +405,7 @@ export fn ghostty_vt_terminal_dump_viewport_row_style_runs(
 
     var current_style_id = cells[0].style_id;
     var current_style = pin.style(&cells[0]);
-    const defaults = resolvedStyle(palette, current_style);
-    const default_bg: terminal.color.RGB = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
+    const defaults = resolvedStyle(default_fg, default_bg, palette, current_style);
 
     var current_flags = defaults.flags;
     var current_base_fg = defaults.fg;
@@ -425,7 +447,7 @@ export fn ghostty_vt_terminal_dump_viewport_row_style_runs(
 
             current_style_id = cell.style_id;
             current_style = pin.style(cell);
-            const resolved = resolvedStyle(palette, current_style);
+            const resolved = resolvedStyle(default_fg, default_bg, palette, current_style);
             current_flags = resolved.flags;
             current_base_fg = resolved.fg;
             current_inverse = current_style.flags.inverse;

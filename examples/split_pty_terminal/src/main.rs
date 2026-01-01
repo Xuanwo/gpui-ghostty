@@ -36,6 +36,9 @@ fn spawn_shell_pane(cx: &mut gpui::App) -> Pane {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "gpui-ghostty");
 
     let mut child = pty_pair
         .slave

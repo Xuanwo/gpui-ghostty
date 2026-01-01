@@ -39,6 +39,14 @@ typedef struct ghostty_vt_cell_style_s {
 ghostty_vt_terminal_t ghostty_vt_terminal_new(uint16_t cols, uint16_t rows);
 void ghostty_vt_terminal_free(ghostty_vt_terminal_t terminal);
 
+void ghostty_vt_terminal_set_default_colors(ghostty_vt_terminal_t terminal,
+                                            uint8_t fg_r,
+                                            uint8_t fg_g,
+                                            uint8_t fg_b,
+                                            uint8_t bg_r,
+                                            uint8_t bg_g,
+                                            uint8_t bg_b);
+
 int ghostty_vt_terminal_feed(ghostty_vt_terminal_t terminal,
                              const uint8_t* bytes,
                              size_t len);

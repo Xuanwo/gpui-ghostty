@@ -102,6 +102,20 @@ impl Terminal {
         Ok(Self { ptr })
     }
 
+    pub fn set_default_colors(&mut self, fg: Rgb, bg: Rgb) {
+        unsafe {
+            ghostty_vt_sys::ghostty_vt_terminal_set_default_colors(
+                self.ptr.as_ptr(),
+                fg.r,
+                fg.g,
+                fg.b,
+                bg.r,
+                bg.g,
+                bg.b,
+            )
+        }
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) -> Result<(), Error> {
         let rc = unsafe {
             ghostty_vt_sys::ghostty_vt_terminal_feed(self.ptr.as_ptr(), bytes.as_ptr(), bytes.len())

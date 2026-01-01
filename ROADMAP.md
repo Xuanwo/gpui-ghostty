@@ -57,6 +57,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M5.8: Text Attributes (bold, faint, underline)
 - [x] M5.9: Line Drawing Charset (DEC Special Graphics)
 - [x] M5.10: IME Enter Passthrough (do not skip Enter key)
+- [x] M5.11: Unicode Box Drawing (procedural glyph overlay)
 
 ## User Work
 

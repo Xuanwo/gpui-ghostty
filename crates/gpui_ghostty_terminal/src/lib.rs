@@ -1496,6 +1496,7 @@ pub mod view {
         shaped_lines: Vec<gpui::ShapedLine>,
         background_quads: Vec<PaintQuad>,
         selection_quads: Vec<PaintQuad>,
+        box_drawing_quads: Vec<PaintQuad>,
         marked_text: Option<(gpui::ShapedLine, gpui::Point<Pixels>)>,
         marked_text_background: Option<PaintQuad>,
         cursor: Option<PaintQuad>,
@@ -1547,6 +1548,102 @@ pub mod view {
             color = color.alpha(0.65);
         }
         color
+    }
+
+    pub(crate) const BOX_DIR_LEFT: u8 = 0x01;
+    pub(crate) const BOX_DIR_RIGHT: u8 = 0x02;
+    pub(crate) const BOX_DIR_UP: u8 = 0x04;
+    pub(crate) const BOX_DIR_DOWN: u8 = 0x08;
+
+    pub(crate) fn box_drawing_mask(ch: char) -> Option<(u8, f32)> {
+        let light = 1.0;
+        let heavy = 1.35;
+        let double = 1.15;
+
+        let mask = match ch {
+            '─' | '━' | '═' => BOX_DIR_LEFT | BOX_DIR_RIGHT,
+            '│' | '┃' | '║' => BOX_DIR_UP | BOX_DIR_DOWN,
+            '┌' | '┏' | '╔' | '╭' => BOX_DIR_RIGHT | BOX_DIR_DOWN,
+            '┐' | '┓' | '╗' | '╮' => BOX_DIR_LEFT | BOX_DIR_DOWN,
+            '└' | '┗' | '╚' | '╰' => BOX_DIR_RIGHT | BOX_DIR_UP,
+            '┘' | '┛' | '╝' | '╯' => BOX_DIR_LEFT | BOX_DIR_UP,
+            '├' | '┣' | '╠' => BOX_DIR_RIGHT | BOX_DIR_UP | BOX_DIR_DOWN,
+            '┤' | '┫' | '╣' => BOX_DIR_LEFT | BOX_DIR_UP | BOX_DIR_DOWN,
+            '┬' | '┳' | '╦' => BOX_DIR_LEFT | BOX_DIR_RIGHT | BOX_DIR_DOWN,
+            '┴' | '┻' | '╩' => BOX_DIR_LEFT | BOX_DIR_RIGHT | BOX_DIR_UP,
+            '┼' | '╋' | '╬' => BOX_DIR_LEFT | BOX_DIR_RIGHT | BOX_DIR_UP | BOX_DIR_DOWN,
+            _ => return None,
+        };
+
+        let scale = match ch {
+            '━' | '┃' | '┏' | '┓' | '┗' | '┛' | '┣' | '┫' | '┳' | '┻' | '╋' => heavy,
+            '═' | '║' | '╔' | '╗' | '╚' | '╝' | '╠' | '╣' | '╦' | '╩' | '╬' => double,
+            _ => light,
+        };
+
+        Some((mask, scale))
+    }
+
+    fn box_drawing_quads_for_char(
+        bounds: Bounds<Pixels>,
+        line_height: Pixels,
+        cell_width: f32,
+        color: gpui::Hsla,
+        ch: char,
+    ) -> Vec<PaintQuad> {
+        let Some((mask, scale)) = box_drawing_mask(ch) else {
+            return Vec::new();
+        };
+
+        let x0 = bounds.left();
+        let x1 = x0 + px(cell_width);
+        let y0 = bounds.top();
+        let y1 = y0 + line_height;
+
+        let mid_x = x0 + px(cell_width * 0.5);
+        let mid_y = y0 + line_height * 0.5;
+
+        let thickness =
+            px(((f32::from(line_height) / 12.0).max(1.0) * scale).max(1.0));
+        let half_t = thickness * 0.5;
+
+        let has_left = mask & BOX_DIR_LEFT != 0;
+        let has_right = mask & BOX_DIR_RIGHT != 0;
+        let has_up = mask & BOX_DIR_UP != 0;
+        let has_down = mask & BOX_DIR_DOWN != 0;
+
+        let mut quads = Vec::new();
+
+        if has_left || has_right {
+            let (start_x, end_x) = if has_left && has_right {
+                (x0, x1)
+            } else if has_left {
+                (x0, mid_x)
+            } else {
+                (mid_x, x1)
+            };
+            quads.push(fill(
+                Bounds::from_corners(point(start_x, mid_y - half_t), point(end_x, mid_y + half_t)),
+                color,
+            ));
+        }
+
+        if has_up || has_down {
+            let (start_y, end_y) = if has_up && has_down {
+                (y0, y1)
+            } else if has_up {
+                (y0, mid_y)
+            } else {
+                (mid_y, y1)
+            };
+
+            quads.push(fill(
+                Bounds::from_corners(point(mid_x - half_t, start_y), point(mid_x + half_t, end_y)),
+                color,
+            ));
+        }
+
+        quads
     }
 
     fn text_run_for_key(base_font: &gpui::Font, key: TextRunKey, len: usize) -> TextRun {
@@ -2030,6 +2127,63 @@ pub mod view {
                 })
                 .unwrap_or_default();
 
+            let box_drawing_quads = crate::cell_metrics(window, &font)
+                .map(|(cell_width, _)| {
+                    use unicode_width::UnicodeWidthChar as _;
+                    let default_fg = run_color;
+                    let mut quads = Vec::new();
+
+                    let view = self.view.read(cx);
+                    for (row, line) in view.viewport_lines.iter().enumerate() {
+                        let y = bounds.top() + line_height * row as f32;
+                        let styles = view.viewport_cell_styles.get(row).map(|v| v.as_slice());
+
+                        let mut col = 1usize;
+                        for ch in line.chars() {
+                            let width = ch.width().unwrap_or(0);
+                            if width == 0 {
+                                continue;
+                            }
+
+                            if let Some((_, _)) = box_drawing_mask(ch) {
+                                let fg = styles
+                                    .and_then(|s| s.get(col.saturating_sub(1)))
+                                    .map(|style| {
+                                        let key = TextRunKey {
+                                            fg: style.fg,
+                                            flags: style.flags
+                                                & (CELL_STYLE_FLAG_FAINT
+                                                    | CELL_STYLE_FLAG_BOLD
+                                                    | CELL_STYLE_FLAG_ITALIC
+                                                    | CELL_STYLE_FLAG_UNDERLINE
+                                                    | CELL_STYLE_FLAG_STRIKETHROUGH),
+                                        };
+                                        color_for_key(key)
+                                    })
+                                    .unwrap_or(default_fg);
+
+                                let x = bounds.left() + px(cell_width * (col.saturating_sub(1)) as f32);
+                                let cell_bounds = Bounds::new(
+                                    point(x, y),
+                                    size(px(cell_width), line_height),
+                                );
+                                quads.extend(box_drawing_quads_for_char(
+                                    cell_bounds,
+                                    line_height,
+                                    cell_width,
+                                    fg,
+                                    ch,
+                                ));
+                            }
+
+                            col = col.saturating_add(width);
+                        }
+                    }
+
+                    quads
+                })
+                .unwrap_or_default();
+
             let cursor = {
                 let view = self.view.read(cx);
                 view.focus_handle
@@ -2055,6 +2209,7 @@ pub mod view {
                 shaped_lines,
                 background_quads,
                 selection_quads,
+                box_drawing_quads,
                 marked_text,
                 marked_text_background,
                 cursor,
@@ -2093,6 +2248,10 @@ pub mod view {
                 for (row, line) in prepaint.shaped_lines.iter().enumerate() {
                     let y = origin.y + prepaint.line_height * row as f32;
                     let _ = line.paint(point(origin.x, y), prepaint.line_height, window, cx);
+                }
+
+                for quad in prepaint.box_drawing_quads.drain(..) {
+                    window.paint_quad(quad);
                 }
 
                 if let Some(bg) = prepaint.marked_text_background.take() {
@@ -2532,5 +2691,32 @@ mod tests {
         assert_eq!(super::view::byte_index_for_column_in_line("Ｗa", 2), 0);
         assert_eq!(super::view::byte_index_for_column_in_line("Ｗa", 3), "Ｗ".len());
         assert_eq!(super::view::byte_index_for_column_in_line("Ｗa", 4), "Ｗ".len() + 1);
+    }
+
+    #[test]
+    fn maps_common_box_drawing_glyphs() {
+        let (mask, _) = super::view::box_drawing_mask('─').unwrap();
+        assert_eq!(
+            mask,
+            super::view::BOX_DIR_LEFT | super::view::BOX_DIR_RIGHT
+        );
+
+        let (mask, _) = super::view::box_drawing_mask('│').unwrap();
+        assert_eq!(mask, super::view::BOX_DIR_UP | super::view::BOX_DIR_DOWN);
+
+        let (mask, _) = super::view::box_drawing_mask('┌').unwrap();
+        assert_eq!(
+            mask,
+            super::view::BOX_DIR_RIGHT | super::view::BOX_DIR_DOWN
+        );
+
+        let (mask, _) = super::view::box_drawing_mask('┼').unwrap();
+        assert_eq!(
+            mask,
+            super::view::BOX_DIR_LEFT
+                | super::view::BOX_DIR_RIGHT
+                | super::view::BOX_DIR_UP
+                | super::view::BOX_DIR_DOWN
+        );
     }
 }

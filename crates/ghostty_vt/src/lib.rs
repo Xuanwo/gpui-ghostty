@@ -67,6 +67,27 @@ impl Terminal {
         Ok(s)
     }
 
+    pub fn take_dirty_viewport_rows(&mut self, rows: u16) -> Result<Vec<u16>, Error> {
+        let bytes = unsafe {
+            ghostty_vt_sys::ghostty_vt_terminal_take_dirty_viewport_rows(self.ptr.as_ptr(), rows)
+        };
+        if bytes.ptr.is_null() || bytes.len == 0 {
+            return Ok(Vec::new());
+        }
+        if bytes.len % 2 != 0 {
+            unsafe { ghostty_vt_sys::ghostty_vt_bytes_free(bytes) };
+            return Err(Error::DumpFailed);
+        }
+
+        let slice = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) };
+        let mut out = Vec::with_capacity(bytes.len / 2);
+        for chunk in slice.chunks_exact(2) {
+            out.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+        }
+        unsafe { ghostty_vt_sys::ghostty_vt_bytes_free(bytes) };
+        Ok(out)
+    }
+
     pub fn scroll_viewport(&mut self, delta_lines: i32) -> Result<(), Error> {
         let rc = unsafe {
             ghostty_vt_sys::ghostty_vt_terminal_scroll_viewport(self.ptr.as_ptr(), delta_lines)

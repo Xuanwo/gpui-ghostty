@@ -196,6 +196,36 @@ export fn ghostty_vt_terminal_dump_viewport(terminal_ptr: ?*anyopaque) callconv(
     return .{ .ptr = slice.ptr, .len = slice.len };
 }
 
+export fn ghostty_vt_terminal_take_dirty_viewport_rows(
+    terminal_ptr: ?*anyopaque,
+    rows: u16,
+) callconv(.C) ghostty_vt_bytes_t {
+    if (terminal_ptr == null or rows == 0) return .{ .ptr = null, .len = 0 };
+    const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
+
+    const alloc = std.heap.c_allocator;
+
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+
+    var y: u32 = 0;
+    while (y < rows) : (y += 1) {
+        const pt: terminal.point.Point = .{ .viewport = .{ .x = 0, .y = y } };
+        const pin = handle.terminal.screen.pages.pin(pt) orelse continue;
+        if (!pin.isDirty()) continue;
+
+        const v: u16 = @intCast(y);
+        out.append(@intCast(v & 0xFF)) catch return .{ .ptr = null, .len = 0 };
+        out.append(@intCast((v >> 8) & 0xFF)) catch return .{ .ptr = null, .len = 0 };
+
+        var set = pin.node.data.dirtyBitSet();
+        set.unset(@intCast(pin.y));
+    }
+
+    const slice = out.toOwnedSlice() catch return .{ .ptr = null, .len = 0 };
+    return .{ .ptr = slice.ptr, .len = slice.len };
+}
+
 const ghostty_vt_bytes_t = extern struct {
     ptr: ?[*]const u8,
     len: usize,

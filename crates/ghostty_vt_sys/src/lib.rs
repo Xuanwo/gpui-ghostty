@@ -40,5 +40,10 @@ unsafe extern "C" {
         terminal: *mut core::ffi::c_void,
     ) -> ghostty_vt_bytes_t;
 
+    pub fn ghostty_vt_terminal_take_dirty_viewport_rows(
+        terminal: *mut core::ffi::c_void,
+        rows: u16,
+    ) -> ghostty_vt_bytes_t;
+
     pub fn ghostty_vt_bytes_free(bytes: ghostty_vt_bytes_t);
 }

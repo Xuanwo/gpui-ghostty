@@ -288,6 +288,12 @@ impl TerminalSession {
         self.config = TerminalConfig { cols, rows };
         self.terminal.resize(cols, rows)
     }
+
+    fn take_dirty_viewport_rows(&mut self) -> Vec<u16> {
+        self.terminal
+            .take_dirty_viewport_rows(self.config.rows)
+            .unwrap_or_default()
+    }
 }
 
 pub mod view {
@@ -420,7 +426,9 @@ pub mod view {
                 let pending = std::mem::take(&mut self.pending_output);
                 let _ = self.session.feed(&pending);
                 self.apply_side_effects(cx);
-                self.pending_refresh = true;
+                if !self.session.take_dirty_viewport_rows().is_empty() {
+                    self.pending_refresh = true;
+                }
             }
 
             if bytes.len() > MAX_PENDING_OUTPUT_BYTES {
@@ -431,7 +439,9 @@ pub mod view {
                     offset = end;
                 }
                 self.apply_side_effects(cx);
-                self.pending_refresh = true;
+                if !self.session.take_dirty_viewport_rows().is_empty() {
+                    self.pending_refresh = true;
+                }
                 cx.notify();
                 return;
             }
@@ -1004,7 +1014,9 @@ pub mod view {
                 let bytes = std::mem::take(&mut self.pending_output);
                 let _ = self.session.feed(&bytes);
                 self.apply_side_effects(cx);
-                self.pending_refresh = true;
+                if !self.session.take_dirty_viewport_rows().is_empty() {
+                    self.pending_refresh = true;
+                }
             }
 
             if self.pending_refresh {

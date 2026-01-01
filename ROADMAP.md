@@ -11,7 +11,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 ## Hard Constraints
 
 - Ghostty is vendored via git submodule and pinned to tag `v1.2.3`.
-- GPUI is consumed from Zed via git dependency pinned to commit `6016d0b8c6a22e586158d3b6f810b3cebb136118`.
+- GPUI is consumed from Zed via git dependency; the exact revision is pinned via `Cargo.lock` (currently `v0.217.3` / `80433cb239e868271457ac376673a5f75bc4adb1`).
 - Public API surface stays minimal to tolerate upstream API churn.
 
 ## Agent Work (Compacted)

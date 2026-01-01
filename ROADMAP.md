@@ -68,6 +68,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M7.1: Refactor (split gpui_ghostty_terminal into modules)
 - [x] M7.2: API Surface (stable re-exports + minimal public types)
 - [x] M7.3: Tests (move + expand unit test coverage)
+- [x] M7.4: README (document current module layout + API)
 
 ## User Work
 

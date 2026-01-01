@@ -104,6 +104,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Support precise ANSI 16-color fg/bg control (OSC 4 / OSC 104 palette updates).
 - [x] Fix main CI failures and enforce pre-commit checks (documented in `AGENTS.md`).
 - [x] Verify Zed pin `80433cb239e868271457ac376673a5f75bc4adb1` builds (fails by default: gpui uses `SmallVec::from_const` but `smallvec` feature `const_new` is not enabled; adding `smallvec = { version = \"1.15\", features = [\"const_new\"] }` makes it build).
+- [x] Switch gpui (Zed) to workspace dependency and pin `rev = "v0.217.3"`.
 
 ## Future Work
 

@@ -7,5 +7,5 @@ license = "Apache-2.0"
 
 [dependencies]
 gpui_ghostty_terminal = { path = "../../crates/gpui_ghostty_terminal" }
-gpui = { git = "https://github.com/zed-industries/zed", rev = "6016d0b8c6a22e586158d3b6f810b3cebb136118", package = "gpui" }
+gpui = { workspace = true }
 portable-pty = "0.9"

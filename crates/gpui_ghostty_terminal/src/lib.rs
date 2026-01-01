@@ -2005,13 +2005,30 @@ fn cell_metrics(window: &mut gpui::Window, font: &gpui::Font) -> Option<(f32, f3
 }
 
 pub fn default_terminal_font() -> gpui::Font {
+    let family = if cfg!(target_os = "macos") {
+        "Menlo"
+    } else if cfg!(target_os = "windows") {
+        "Consolas"
+    } else {
+        "DejaVu Sans Mono"
+    };
+
     let fallbacks = gpui::FontFallbacks::from_fonts(vec![
+        // Prefer platform monospace families first.
+        "SF Mono".to_string(),
+        "Menlo".to_string(),
+        "Monaco".to_string(),
+        "Consolas".to_string(),
+        "Cascadia Mono".to_string(),
+        "DejaVu Sans Mono".to_string(),
+        "Noto Sans Mono".to_string(),
+        "JetBrains Mono".to_string(),
+        "Fira Mono".to_string(),
         "Sarasa Mono SC".to_string(),
         "Sarasa Term SC".to_string(),
         "Sarasa Mono J".to_string(),
         "Noto Sans Mono CJK SC".to_string(),
         "Noto Sans Mono CJK JP".to_string(),
-        "Noto Sans Mono".to_string(),
         "Source Han Mono SC".to_string(),
         "WenQuanYi Zen Hei Mono".to_string(),
         "Apple Color Emoji".to_string(),
@@ -2019,7 +2036,7 @@ pub fn default_terminal_font() -> gpui::Font {
         "Segoe UI Emoji".to_string(),
     ]);
 
-    let mut font = gpui::font("monospace");
+    let mut font = gpui::font(family);
     font.fallbacks = Some(fallbacks);
     font
 }

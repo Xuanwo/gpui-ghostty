@@ -1486,6 +1486,7 @@ pub mod view {
         background_quads: Vec<PaintQuad>,
         selection_quads: Vec<PaintQuad>,
         marked_text: Option<(gpui::ShapedLine, gpui::Point<Pixels>)>,
+        marked_text_background: Option<PaintQuad>,
         cursor: Option<PaintQuad>,
     }
 
@@ -1816,7 +1817,8 @@ pub mod view {
                 (view.marked_text.clone(), view.session.cursor_position(), view.font.clone())
             };
 
-            let marked_text = marked_text.and_then(|text| {
+            let (marked_text, marked_text_background) = marked_text
+                .and_then(|text| {
                 if text.is_empty() {
                     return None;
                 }
@@ -1840,11 +1842,58 @@ pub mod view {
                     }),
                     strikethrough: None,
                 };
+                let force_width = {
+                    use unicode_width::UnicodeWidthChar as _;
+                    let has_wide = text
+                        .as_str()
+                        .chars()
+                        .any(|ch| ch.width().unwrap_or(0) > 1);
+                    (!has_wide).then_some(px(cell_width))
+                };
                 let shaped = window
                     .text_system()
-                    .shape_line(text, font_size, &[run], None);
-                Some((shaped, origin))
-            });
+                    .shape_line(text.clone(), font_size, &[run], force_width);
+
+                let bg = {
+                    let view = self.view.read(cx);
+                    let row_index = row.saturating_sub(1) as usize;
+                    let col_index = col.saturating_sub(1) as usize;
+                    view.viewport_cell_styles
+                        .get(row_index)
+                        .and_then(|row| row.get(col_index))
+                        .map(|style| style.bg)
+                        .unwrap_or(Rgb { r: 0, g: 0, b: 0 })
+                };
+
+                let cell_len = {
+                    use unicode_width::UnicodeWidthChar as _;
+                    let mut cells = 0usize;
+                    for ch in text.as_str().chars() {
+                        let w = ch.width().unwrap_or(0);
+                        if w > 0 {
+                            cells = cells.saturating_add(w);
+                        }
+                    }
+                    cells.max(1)
+                };
+
+                let marked_text_background = fill(
+                    Bounds::new(
+                        origin,
+                        size(px(cell_width * cell_len as f32), line_height),
+                    ),
+                    rgba(
+                        (u32::from(bg.r) << 24)
+                            | (u32::from(bg.g) << 16)
+                            | (u32::from(bg.b) << 8)
+                            | 0xFF,
+                    ),
+                );
+
+                Some(((shaped, origin), marked_text_background))
+            })
+            .map(|(text, bg)| (Some(text), Some(bg)))
+            .unwrap_or((None, None));
 
             let selection_quads = selection
                 .map(|sel| sel.range())
@@ -1915,6 +1964,7 @@ pub mod view {
                 background_quads,
                 selection_quads,
                 marked_text,
+                marked_text_background,
                 cursor,
             }
         }
@@ -1951,6 +2001,10 @@ pub mod view {
                 for (row, line) in prepaint.shaped_lines.iter().enumerate() {
                     let y = origin.y + prepaint.line_height * row as f32;
                     let _ = line.paint(point(origin.x, y), prepaint.line_height, window, cx);
+                }
+
+                if let Some(bg) = prepaint.marked_text_background.take() {
+                    window.paint_quad(bg);
                 }
 
                 if let Some((line, origin)) = prepaint.marked_text.as_ref() {

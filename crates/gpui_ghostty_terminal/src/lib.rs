@@ -1879,27 +1879,29 @@ pub mod view {
                 cx,
             );
 
-            for quad in prepaint.background_quads.drain(..) {
-                window.paint_quad(quad);
-            }
+            window.paint_layer(bounds, |window| {
+                for quad in prepaint.background_quads.drain(..) {
+                    window.paint_quad(quad);
+                }
 
-            for quad in prepaint.selection_quads.drain(..) {
-                window.paint_quad(quad);
-            }
+                for quad in prepaint.selection_quads.drain(..) {
+                    window.paint_quad(quad);
+                }
 
-            let origin = bounds.origin;
-            for (row, line) in prepaint.shaped_lines.iter().enumerate() {
-                let y = origin.y + prepaint.line_height * row as f32;
-                let _ = line.paint(point(origin.x, y), prepaint.line_height, window, cx);
-            }
+                let origin = bounds.origin;
+                for (row, line) in prepaint.shaped_lines.iter().enumerate() {
+                    let y = origin.y + prepaint.line_height * row as f32;
+                    let _ = line.paint(point(origin.x, y), prepaint.line_height, window, cx);
+                }
 
-            if let Some((line, origin)) = prepaint.marked_text.as_ref() {
-                let _ = line.paint(*origin, prepaint.line_height, window, cx);
-            }
+                if let Some((line, origin)) = prepaint.marked_text.as_ref() {
+                    let _ = line.paint(*origin, prepaint.line_height, window, cx);
+                }
 
-            if let Some(cursor) = prepaint.cursor.take() {
-                window.paint_quad(cursor);
-            }
+                if let Some(cursor) = prepaint.cursor.take() {
+                    window.paint_quad(cursor);
+                }
+            });
         }
     }
 

@@ -162,7 +162,7 @@ fn main() {
 
             let subscription = split.update(cx, |_, cx| {
                 cx.observe_window_bounds(window, move |_, window, cx| {
-                    let size = window.bounds().size;
+                    let size = window.viewport_size();
                     let width = f32::from(size.width).max(1.0);
                     let height = f32::from(size.height).max(1.0);
 

@@ -87,7 +87,7 @@ fn main() {
             let master_for_resize = master.clone();
             let subscription = view.update(cx, |_, cx| {
                 cx.observe_window_bounds(window, move |this, window, cx| {
-                    let size = window.bounds().size;
+                    let size = window.viewport_size();
                     let width = f32::from(size.width);
                     let height = f32::from(size.height);
 

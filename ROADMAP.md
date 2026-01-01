@@ -49,6 +49,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M4.4: Layout + End-to-End Examples
 - [x] M5.1: IME Support (commit + preedit)
 - [x] M5.2: TUI Styling (SGR fg/bg + inverse)
+- [x] M5.3: Layout Clipping and Viewport Sizing
 
 ## User Work
 

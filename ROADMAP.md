@@ -27,6 +27,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M2.2: OSC Clipboard (OSC 52)
 - [x] M2.3: PTY Key Sequences (arrows/esc/delete/backspace)
 - [x] M2.4: Modifier-Aware PTY Keys (function keys, Alt+char, shift for scrollback)
+- [x] M2.6: SGR Mouse Modes (buttons, motion, modifiers)
 - [x] M3.1: Output Coalescing (reduce viewport dumps)
 - [x] M3.2: Output Backpressure (bound pending buffer)
 - [x] M4.1: PTY Login Shell Example

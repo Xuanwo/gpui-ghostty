@@ -9,6 +9,34 @@ fn update_viewport_string(current: &mut String, updated: String) -> bool {
     }
 }
 
+fn sgr_mouse_button_value(
+    base_button: u8,
+    motion: bool,
+    shift: bool,
+    alt: bool,
+    control: bool,
+) -> u8 {
+    let mut value = base_button;
+    if motion {
+        value = value.saturating_add(32);
+    }
+    if shift {
+        value = value.saturating_add(4);
+    }
+    if alt {
+        value = value.saturating_add(8);
+    }
+    if control {
+        value = value.saturating_add(16);
+    }
+    value
+}
+
+fn sgr_mouse_sequence(button_value: u8, col: u16, row: u16, pressed: bool) -> String {
+    let suffix = if pressed { 'M' } else { 'm' };
+    format!("\x1b[<{};{};{}{}", button_value, col, row, suffix)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct TerminalConfig {
     pub cols: u16,
@@ -68,6 +96,14 @@ impl TerminalSession {
 
     pub fn mouse_sgr_enabled(&self) -> bool {
         self.mouse_sgr_enabled
+    }
+
+    pub fn mouse_button_event_enabled(&self) -> bool {
+        self.mouse_button_event_enabled
+    }
+
+    pub fn mouse_any_event_enabled(&self) -> bool {
+        self.mouse_any_event_enabled
     }
 
     pub fn title(&self) -> Option<&str> {
@@ -476,12 +512,16 @@ pub mod view {
                 || !self.session.mouse_reporting_enabled()
                 || !self.session.mouse_sgr_enabled()
             {
-                if let Some(index) = self.mouse_position_to_viewport_index(event.position, window) {
-                    self.selection = Some(ByteSelection {
-                        anchor: index,
-                        active: index,
-                    });
-                    cx.notify();
+                if event.button == MouseButton::Left {
+                    if let Some(index) =
+                        self.mouse_position_to_viewport_index(event.position, window)
+                    {
+                        self.selection = Some(ByteSelection {
+                            anchor: index,
+                            active: index,
+                        });
+                        cx.notify();
+                    }
                 }
                 return;
             }
@@ -491,7 +531,21 @@ pub mod view {
             };
 
             if let Some(input) = self.input.as_ref() {
-                let seq = format!("\x1b[<0;{};{}M", col, row);
+                let base_button = match event.button {
+                    MouseButton::Left => 0,
+                    MouseButton::Middle => 1,
+                    MouseButton::Right => 2,
+                    _ => return,
+                };
+
+                let button_value = crate::sgr_mouse_button_value(
+                    base_button,
+                    false,
+                    false,
+                    event.modifiers.alt,
+                    event.modifiers.control,
+                );
+                let seq = crate::sgr_mouse_sequence(button_value, col, row, true);
                 input.send(seq.as_bytes());
             }
         }
@@ -521,7 +575,21 @@ pub mod view {
             };
 
             if let Some(input) = self.input.as_ref() {
-                let seq = format!("\x1b[<0;{};{}m", col, row);
+                let base_button = match event.button {
+                    MouseButton::Left => 0,
+                    MouseButton::Middle => 1,
+                    MouseButton::Right => 2,
+                    _ => return,
+                };
+
+                let button_value = crate::sgr_mouse_button_value(
+                    base_button,
+                    false,
+                    false,
+                    event.modifiers.alt,
+                    event.modifiers.control,
+                );
+                let seq = crate::sgr_mouse_sequence(button_value, col, row, false);
                 input.send(seq.as_bytes());
             }
         }
@@ -532,19 +600,53 @@ pub mod view {
             window: &mut Window,
             cx: &mut Context<Self>,
         ) {
-            if !event.dragging() {
-                return;
-            }
-
-            if self.selection.is_none() {
-                return;
-            }
-
             if !event.modifiers.shift
                 && self.input.is_some()
                 && self.session.mouse_reporting_enabled()
                 && self.session.mouse_sgr_enabled()
             {
+                let send_motion = if self.session.mouse_any_event_enabled() {
+                    true
+                } else if self.session.mouse_button_event_enabled() {
+                    event.pressed_button.is_some()
+                } else {
+                    false
+                };
+
+                if send_motion {
+                    let Some((col, row)) = self.mouse_position_to_cell(event.position, window)
+                    else {
+                        return;
+                    };
+
+                    let base_button = match event.pressed_button {
+                        Some(MouseButton::Left) => 0,
+                        Some(MouseButton::Middle) => 1,
+                        Some(MouseButton::Right) => 2,
+                        Some(_) => 3,
+                        None => 3,
+                    };
+
+                    let button_value = crate::sgr_mouse_button_value(
+                        base_button,
+                        true,
+                        false,
+                        event.modifiers.alt,
+                        event.modifiers.control,
+                    );
+                    if let Some(input) = self.input.as_ref() {
+                        let seq = crate::sgr_mouse_sequence(button_value, col, row, true);
+                        input.send(seq.as_bytes());
+                    }
+                    return;
+                }
+            }
+
+            if !event.dragging() {
+                return;
+            }
+
+            if self.selection.is_none() {
                 return;
             }
 
@@ -820,16 +922,26 @@ pub mod view {
             }
 
             if let Some(input) = self.input.as_ref() {
-                if self.session.mouse_reporting_enabled() && self.session.mouse_sgr_enabled() {
+                if !event.modifiers.shift
+                    && self.session.mouse_reporting_enabled()
+                    && self.session.mouse_sgr_enabled()
+                {
                     let Some((col, row)) = self.mouse_position_to_cell(event.position, window)
                     else {
                         return;
                     };
 
                     let button = if delta_lines < 0 { 64 } else { 65 };
+                    let button_value = crate::sgr_mouse_button_value(
+                        button,
+                        false,
+                        false,
+                        event.modifiers.alt,
+                        event.modifiers.control,
+                    );
                     let steps = delta_lines.unsigned_abs().min(10);
                     for _ in 0..steps {
-                        let seq = format!("\x1b[<{};{};{}M", button, col, row);
+                        let seq = crate::sgr_mouse_sequence(button_value, col, row, true);
                         input.send(seq.as_bytes());
                     }
                     return;
@@ -921,7 +1033,11 @@ pub mod view {
                 .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
                 .on_mouse_move(cx.listener(Self::on_mouse_move))
                 .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+                .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_mouse_down))
+                .on_mouse_down(MouseButton::Right, cx.listener(Self::on_mouse_down))
                 .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
+                .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_mouse_up))
+                .on_mouse_up(MouseButton::Right, cx.listener(Self::on_mouse_up))
                 .bg(gpui::black())
                 .text_color(gpui::white())
                 .font_family("monospace")
@@ -1092,5 +1208,19 @@ mod tests {
             "def".to_string()
         ));
         assert_eq!(current, "def");
+    }
+
+    #[test]
+    fn sgr_mouse_encoding_helpers_match_expected_format() {
+        assert_eq!(
+            super::sgr_mouse_button_value(0, false, false, false, false),
+            0
+        );
+        assert_eq!(
+            super::sgr_mouse_button_value(2, true, false, true, true),
+            58
+        );
+        assert_eq!(super::sgr_mouse_sequence(0, 1, 1, true), "\u{1b}[<0;1;1M");
+        assert_eq!(super::sgr_mouse_sequence(0, 1, 1, false), "\u{1b}[<0;1;1m");
     }
 }

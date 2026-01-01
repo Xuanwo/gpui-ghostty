@@ -364,10 +364,7 @@ fn osc_color_query_response(query: OscQuery, (r, g, b): (u8, u8, u8)) -> String 
     let g16 = u16::from(g) * 0x0101;
     let b16 = u16::from(b) * 0x0101;
 
-    format!(
-        "\x1b]{};rgb:{:04x}/{:04x}/{:04x}\x1b\\",
-        ps, r16, g16, b16
-    )
+    format!("\x1b]{};rgb:{:04x}/{:04x}/{:04x}\x1b\\", ps, r16, g16, b16)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -418,10 +415,18 @@ enum OscQueryScanState {
     Idle,
     Esc,
     Osc,
-    Ps { value: u32 },
-    AfterSemicolon { ps: u32 },
-    Query { ps: u32 },
-    StEscape { ps: u32 },
+    Ps {
+        value: u32,
+    },
+    AfterSemicolon {
+        ps: u32,
+    },
+    Query {
+        ps: u32,
+    },
+    StEscape {
+        ps: u32,
+    },
 }
 
 impl OscQueryScanState {

@@ -26,4 +26,3 @@ impl Default for TerminalConfig {
         }
     }
 }
-

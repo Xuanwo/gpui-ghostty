@@ -65,9 +65,9 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M6.1: Default Colors (configurable fg/bg for OSC 10/11 + renderer clear)
 - [x] M6.2: Background Clear (always paint base background to avoid artifacts)
 - [x] M6.3: Terminal Env Defaults (TERM/COLORTERM for examples)
-- [ ] M7.1: Refactor (split gpui_ghostty_terminal into modules)
-- [ ] M7.2: API Surface (stable re-exports + minimal public types)
-- [ ] M7.3: Tests (move + expand unit test coverage)
+- [x] M7.1: Refactor (split gpui_ghostty_terminal into modules)
+- [x] M7.2: API Surface (stable re-exports + minimal public types)
+- [x] M7.3: Tests (move + expand unit test coverage)
 
 ## User Work
 
@@ -95,6 +95,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Fix `htop` display issues (cursor/DSR queries)
 - [x] Fix Cmd+A select-all behavior
 - [x] Auto-detect http(s) URLs on Cmd+Click
+- [ ] Add an embed-friendly option to disable `Window::set_window_title` updates from `TerminalView`.
 
 ## Future Work
 

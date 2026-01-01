@@ -62,3 +62,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Avoid over-splitting work (documented in `AGENTS.md`).
 - [x] Compact completed roadmap items to keep `ROADMAP.md` short (documented in `AGENTS.md`).
 - [x] Keep `Agent Work` and `Future Work` aligned with the implemented code (documented in `AGENTS.md`).
+
+## Future Work
+
+- None.

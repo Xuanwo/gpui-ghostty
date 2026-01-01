@@ -291,17 +291,21 @@ impl TerminalSession {
 
         let mut seg_start = 0usize;
         for (i, &b) in bytes.iter().enumerate() {
-            let dsr = self.dsr_state.advance(b);
-            if !dsr {
+            let Some(query) = self.dsr_state.advance(b) else {
                 continue;
-            }
+            };
 
             self.terminal.feed(&bytes[seg_start..=i])?;
             seg_start = i + 1;
 
-            let (col, row) = self.cursor_position().unwrap_or((1, 1));
-            let resp = format!("\x1b[{};{}R", row, col);
-            send(resp.as_bytes());
+            match query {
+                TerminalQuery::DeviceStatus => send(b"\x1b[0n"),
+                TerminalQuery::CursorPosition => {
+                    let (col, row) = self.cursor_position().unwrap_or((1, 1));
+                    let resp = format!("\x1b[{};{}R", row, col);
+                    send(resp.as_bytes());
+                }
+            }
         }
 
         if seg_start < bytes.len() {
@@ -347,6 +351,12 @@ impl TerminalSession {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum TerminalQuery {
+    DeviceStatus,
+    CursorPosition,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 enum DsrScanState {
     #[default]
@@ -354,22 +364,32 @@ enum DsrScanState {
     Esc,
     Csi,
     CsiQ,
+    Csi5,
+    CsiQ5,
     Csi6,
     CsiQ6,
 }
 
 impl DsrScanState {
-    fn advance(&mut self, b: u8) -> bool {
+    fn advance(&mut self, b: u8) -> Option<TerminalQuery> {
         use DsrScanState::*;
 
-        let matched = matches!((*self, b), (Csi6, b'n') | (CsiQ6, b'n'));
+        let matched = match (*self, b) {
+            (Csi5, b'n') | (CsiQ5, b'n') => Some(TerminalQuery::DeviceStatus),
+            (Csi6, b'n') | (CsiQ6, b'n') => Some(TerminalQuery::CursorPosition),
+            _ => None,
+        };
 
         *self = match (*self, b) {
             (_, 0x1b) => Esc,
             (Esc, b'[') => Csi,
             (Csi, b'?') => CsiQ,
+            (Csi, b'5') => Csi5,
+            (CsiQ, b'5') => CsiQ5,
             (Csi, b'6') => Csi6,
             (CsiQ, b'6') => CsiQ6,
+            (Csi5, b'n') => Idle,
+            (CsiQ5, b'n') => Idle,
             (Csi6, b'n') => Idle,
             (CsiQ6, b'n') => Idle,
             _ => Idle,
@@ -392,6 +412,79 @@ pub mod view {
     use std::ops::Range;
 
     actions!(terminal_view, [Copy, Paste, SelectAll]);
+
+    fn is_url_byte(b: u8) -> bool {
+        matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9')
+            || matches!(
+                b,
+                b'-'
+                    | b'.'
+                    | b'_'
+                    | b'~'
+                    | b':'
+                    | b'/'
+                    | b'?'
+                    | b'#'
+                    | b'['
+                    | b']'
+                    | b'@'
+                    | b'!'
+                    | b'$'
+                    | b'&'
+                    | b'\''
+                    | b'('
+                    | b')'
+                    | b'*'
+                    | b'+'
+                    | b','
+                    | b';'
+                    | b'='
+                    | b'%'
+            )
+    }
+
+    fn url_at_byte_index(text: &str, index: usize) -> Option<String> {
+        let bytes = text.as_bytes();
+        if bytes.is_empty() {
+            return None;
+        }
+
+        let mut idx = index.min(bytes.len().saturating_sub(1));
+
+        if !is_url_byte(bytes[idx]) && idx > 0 && is_url_byte(bytes[idx - 1]) {
+            idx -= 1;
+        }
+
+        if !is_url_byte(bytes[idx]) {
+            return None;
+        }
+
+        let mut start = idx;
+        while start > 0 && is_url_byte(bytes[start - 1]) {
+            start -= 1;
+        }
+
+        let mut end = idx + 1;
+        while end < bytes.len() && is_url_byte(bytes[end]) {
+            end += 1;
+        }
+
+        while end > start
+            && matches!(
+                bytes[end - 1],
+                b'.' | b',' | b')' | b']' | b'}' | b';' | b':' | b'!' | b'?'
+            )
+        {
+            end -= 1;
+        }
+
+        let candidate = std::str::from_utf8(&bytes[start..end]).ok()?;
+        if candidate.starts_with("https://") || candidate.starts_with("http://") {
+            Some(candidate.to_string())
+        } else {
+            None
+        }
+    }
 
     pub struct TerminalInput {
         send: Box<dyn Fn(&[u8]) + Send + Sync + 'static>,
@@ -800,6 +893,7 @@ pub mod view {
                 active: self.viewport.as_str().len(),
             });
             self.on_copy(&Copy, window, cx);
+            cx.notify();
         }
 
         fn on_mouse_down(
@@ -823,6 +917,16 @@ pub mod view {
                         cx.write_to_primary(item);
                         return;
                     }
+                }
+
+                if let Some(index) = self.mouse_position_to_viewport_index(event.position, window)
+                    && let Some(url) = url_at_byte_index(self.viewport.as_str(), index)
+                {
+                    let item = ClipboardItem::new_string(url);
+                    cx.write_to_clipboard(item.clone());
+                    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                    cx.write_to_primary(item);
+                    return;
                 }
             }
 
@@ -1181,12 +1285,31 @@ pub mod view {
             position: gpui::Point<gpui::Pixels>,
             window: &mut Window,
         ) -> Option<usize> {
+            let rows = self.session.rows() as usize;
+            if rows == 0 {
+                return None;
+            }
+
+            let (_, cell_height) = crate::cell_metrics(window, &self.font)?;
+            let y = f32::from(position.y);
+            let mut row_index = (y / cell_height).floor() as i32;
+            if row_index < 0 {
+                row_index = 0;
+            }
+            if row_index >= rows as i32 {
+                row_index = rows as i32 - 1;
+            }
+            let row_index = row_index as usize;
+
+            if let Some(Some(line)) = self.line_layouts.get(row_index) {
+                let byte_index =
+                    line.closest_index_for_x(px(f32::from(position.x))).min(line.text.len());
+                let offset = *self.viewport_line_offsets.get(row_index).unwrap_or(&0);
+                return Some(offset.saturating_add(byte_index));
+            }
+
             let (col, row) = self.mouse_position_to_cell(position, window)?;
-            Some(crate::viewport_index_for_cell(
-                self.viewport.as_str(),
-                row,
-                col,
-            ))
+            Some(crate::viewport_index_for_cell(self.viewport.as_str(), row, col))
         }
 
         fn mouse_position_to_cell(
@@ -1331,6 +1454,36 @@ pub mod view {
         selection_quads: Vec<PaintQuad>,
         marked_text: Option<(gpui::ShapedLine, gpui::Point<Pixels>)>,
         cursor: Option<PaintQuad>,
+    }
+
+    pub(crate) fn byte_index_for_column_in_line(line: &str, col: u16) -> usize {
+        use unicode_width::UnicodeWidthChar as _;
+
+        let col = col.max(1) as usize;
+        if col == 1 {
+            return 0;
+        }
+
+        let mut current_col = 1usize;
+        for (byte_index, ch) in line.char_indices() {
+            let width = ch.width().unwrap_or(0);
+            if width == 0 {
+                continue;
+            }
+
+            if current_col == col {
+                return byte_index;
+            }
+
+            let next_col = current_col.saturating_add(width);
+            if col < next_col {
+                return byte_index;
+            }
+
+            current_col = next_col;
+        }
+
+        line.len()
     }
 
     struct TerminalTextElement {
@@ -1529,16 +1682,15 @@ pub mod view {
                     .flatten()
             }
             .and_then(|(col, row)| {
-                let font = { self.view.read(cx).font.clone() };
-                let (cell_width, _) = crate::cell_metrics(window, &font)?;
-
-                let x =
-                    bounds.left() + px(cell_width * (col.saturating_sub(1)) as f32);
                 let y = bounds.top() + line_height * (row.saturating_sub(1)) as f32;
+                let row_index = row.saturating_sub(1) as usize;
+                let line = shaped_lines.get(row_index)?;
+                let byte_index = byte_index_for_column_in_line(line.text.as_str(), col);
+                let x = bounds.left() + line.x_for_index(byte_index.min(line.text.len()));
 
                 Some(fill(
-                    Bounds::new(point(x, y), size(px(cell_width), line_height)),
-                    rgba(0xffffff55),
+                    Bounds::new(point(x, y), size(px(2.0), line_height)),
+                    rgba(0xffffffaa),
                 ))
             });
 
@@ -1925,5 +2077,48 @@ mod tests {
             .unwrap();
 
         assert_eq!(response, b"\x1b[1;3R");
+    }
+
+    #[test]
+    fn responds_to_csi_5n_device_status_request() {
+        let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+        let mut response = Vec::new();
+
+        session
+            .feed_with_pty_responses(b"\x1b[5n", |bytes| {
+                response.extend_from_slice(bytes);
+            })
+            .unwrap();
+
+        assert_eq!(response, b"\x1b[0n");
+    }
+
+    #[test]
+    fn responds_to_csi_5n_across_chunk_boundaries() {
+        let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+        let mut response = Vec::new();
+
+        session
+            .feed_with_pty_responses(b"\x1b[", |bytes| {
+                response.extend_from_slice(bytes);
+            })
+            .unwrap();
+        assert!(response.is_empty());
+
+        session
+            .feed_with_pty_responses(b"5n", |bytes| {
+                response.extend_from_slice(bytes);
+            })
+            .unwrap();
+
+        assert_eq!(response, b"\x1b[0n");
+    }
+
+    #[test]
+    fn byte_index_for_column_in_line_handles_wide_characters() {
+        assert_eq!(super::view::byte_index_for_column_in_line("你a", 1), 0);
+        assert_eq!(super::view::byte_index_for_column_in_line("你a", 2), 0);
+        assert_eq!(super::view::byte_index_for_column_in_line("你a", 3), "你".len());
+        assert_eq!(super::view::byte_index_for_column_in_line("你a", 4), "你".len() + 1);
     }
 }

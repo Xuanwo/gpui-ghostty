@@ -70,6 +70,11 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Render the cursor
 - [x] Fix IME candidate window position (CJK preedit misalignment)
 - [x] Improve TUI rendering for apps like `htop`
+- [x] Fix cursor drift vs rendered content (error grows with more input)
+- [x] Fix mouse pointer hit-testing vs rendered content
+- [x] Fix `htop` display issues (cursor/DSR queries)
+- [x] Fix Cmd+A select-all behavior
+- [x] Auto-detect http(s) URLs on Cmd+Click
 
 ## Future Work
 

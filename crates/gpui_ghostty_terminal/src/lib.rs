@@ -1,14 +1,5 @@
 use ghostty_vt::{Error, Terminal};
 
-fn update_viewport_string(current: &mut gpui::SharedString, updated: String) -> bool {
-    if current.as_str() == updated.as_str() {
-        false
-    } else {
-        *current = gpui::SharedString::from(updated);
-        true
-    }
-}
-
 fn split_viewport_lines(viewport: &str) -> Vec<String> {
     let viewport = viewport.strip_suffix('\n').unwrap_or(viewport);
     if viewport.is_empty() {
@@ -656,9 +647,9 @@ pub mod view {
 
     pub struct TerminalView {
         session: TerminalSession,
-        viewport: SharedString,
         viewport_lines: Vec<String>,
         viewport_line_offsets: Vec<usize>,
+        viewport_total_len: usize,
         viewport_style_runs: Vec<Vec<StyleRun>>,
         line_layouts: Vec<Option<gpui::ShapedLine>>,
         line_layout_key: Option<(Pixels, Pixels)>,
@@ -693,9 +684,9 @@ pub mod view {
         pub fn new(session: TerminalSession, focus_handle: FocusHandle) -> Self {
             Self {
                 session,
-                viewport: SharedString::default(),
                 viewport_lines: Vec::new(),
                 viewport_line_offsets: Vec::new(),
+                viewport_total_len: 0,
                 viewport_style_runs: Vec::new(),
                 line_layouts: Vec::new(),
                 line_layout_key: None,
@@ -719,9 +710,9 @@ pub mod view {
         ) -> Self {
             Self {
                 session,
-                viewport: SharedString::default(),
                 viewport_lines: Vec::new(),
                 viewport_line_offsets: Vec::new(),
+                viewport_total_len: 0,
                 viewport_style_runs: Vec::new(),
                 line_layouts: Vec::new(),
                 line_layout_key: None,
@@ -847,16 +838,15 @@ pub mod view {
 
         fn refresh_viewport(&mut self) {
             let viewport = self.session.dump_viewport().unwrap_or_default();
-            if crate::update_viewport_string(&mut self.viewport, viewport) {
-                self.viewport_lines = crate::split_viewport_lines(self.viewport.as_str());
-                self.viewport_line_offsets = Self::compute_viewport_line_offsets(&self.viewport_lines);
-                self.viewport_style_runs = (0..self.session.rows())
-                    .map(|row| self.session.dump_viewport_row_style_runs(row).unwrap_or_default())
-                    .collect();
-                self.line_layouts.clear();
-                self.line_layout_key = None;
-                self.selection = None;
-            }
+            self.viewport_lines = crate::split_viewport_lines(&viewport);
+            self.viewport_line_offsets = Self::compute_viewport_line_offsets(&self.viewport_lines);
+            self.viewport_total_len = Self::compute_viewport_total_len(&self.viewport_lines);
+            self.viewport_style_runs = (0..self.session.rows())
+                .map(|row| self.session.dump_viewport_row_style_runs(row).unwrap_or_default())
+                .collect();
+            self.line_layouts.clear();
+            self.line_layout_key = None;
+            self.selection = None;
         }
 
         fn compute_viewport_line_offsets(lines: &[String]) -> Vec<usize> {
@@ -869,19 +859,70 @@ pub mod view {
             offsets
         }
 
-        fn rebuild_viewport_from_lines(&mut self) {
-            let mut viewport = String::new();
-            for (idx, line) in self.viewport_lines.iter().enumerate() {
-                if idx > 0 {
-                    viewport.push('\n');
+        fn compute_viewport_total_len(lines: &[String]) -> usize {
+            lines.iter().fold(0usize, |acc, line| acc.saturating_add(line.len() + 1))
+        }
+
+        fn viewport_slice(&self, range: Range<usize>) -> String {
+            if range.is_empty() || self.viewport_lines.is_empty() {
+                return String::new();
+            }
+
+            let start = range.start.min(self.viewport_total_len);
+            let end = range.end.min(self.viewport_total_len);
+            if start >= end {
+                return String::new();
+            }
+
+            let mut out = String::new();
+            let mut i = 0usize;
+            while i < self.viewport_lines.len() {
+                let line_start = *self.viewport_line_offsets.get(i).unwrap_or(&0);
+                let line = &self.viewport_lines[i];
+                let line_end = line_start.saturating_add(line.len());
+                let newline_pos = line_end;
+
+                let seg_start = start.max(line_start);
+                let seg_end = end.min(newline_pos.saturating_add(1));
+                if seg_start < seg_end {
+                    let local_start = seg_start.saturating_sub(line_start);
+                    let local_end = seg_end.saturating_sub(line_start);
+                    let local_end = local_end.min(line.len().saturating_add(1));
+
+                    if local_start < line.len() {
+                        let text_end = local_end.min(line.len());
+                        if let Some(seg) = line.get(local_start..text_end) {
+                            out.push_str(seg);
+                        }
+                    }
+                    if local_end > line.len() {
+                        out.push('\n');
+                    }
                 }
-                viewport.push_str(line);
+
+                i += 1;
             }
-            if !self.viewport_lines.is_empty() {
-                viewport.push('\n');
+
+            out
+        }
+
+        fn url_at_viewport_index(&self, index: usize) -> Option<String> {
+            if self.viewport_lines.is_empty() {
+                return None;
             }
-            self.viewport = SharedString::from(viewport);
-            self.viewport_line_offsets = Self::compute_viewport_line_offsets(&self.viewport_lines);
+
+            let idx = index.min(self.viewport_total_len.saturating_sub(1));
+            let row = self
+                .viewport_line_offsets
+                .iter()
+                .enumerate()
+                .rfind(|(_, offset)| **offset <= idx)
+                .map(|(i, _)| i)?;
+
+            let line = self.viewport_lines.get(row)?.as_str();
+            let line_start = *self.viewport_line_offsets.get(row).unwrap_or(&0);
+            let local = idx.saturating_sub(line_start).min(line.len().saturating_sub(1));
+            url_at_byte_index(line, local)
         }
 
         fn apply_dirty_viewport_rows(&mut self, dirty_rows: &[u16]) -> bool {
@@ -925,7 +966,8 @@ pub mod view {
                 }
             }
 
-            self.rebuild_viewport_from_lines();
+            self.viewport_line_offsets = Self::compute_viewport_line_offsets(&self.viewport_lines);
+            self.viewport_total_len = Self::compute_viewport_total_len(&self.viewport_lines);
             self.selection = None;
             true
         }
@@ -1044,8 +1086,9 @@ pub mod view {
                 .selection
                 .map(|s| s.range())
                 .filter(|range| !range.is_empty())
-                .and_then(|range| self.viewport.as_str().get(range))
-                .unwrap_or(self.viewport.as_str());
+                .map(|range| self.viewport_slice(range))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| self.viewport_slice(0..self.viewport_total_len));
 
             let item = ClipboardItem::new_string(selection.to_string());
             cx.write_to_clipboard(item.clone());
@@ -1056,7 +1099,7 @@ pub mod view {
         fn on_select_all(&mut self, _: &SelectAll, window: &mut Window, cx: &mut Context<Self>) {
             self.selection = Some(ByteSelection {
                 anchor: 0,
-                active: self.viewport.as_str().len(),
+                active: self.viewport_total_len,
             });
             self.on_copy(&Copy, window, cx);
             cx.notify();
@@ -1086,7 +1129,7 @@ pub mod view {
                 }
 
                 if let Some(index) = self.mouse_position_to_viewport_index(event.position, window)
-                    && let Some(url) = url_at_byte_index(self.viewport.as_str(), index)
+                    && let Some(url) = self.url_at_viewport_index(index)
                 {
                     let item = ClipboardItem::new_string(url);
                     cx.write_to_clipboard(item.clone());
@@ -1457,7 +1500,11 @@ pub mod view {
             }
 
             let (col, row) = self.mouse_position_to_cell(position, window)?;
-            Some(crate::viewport_index_for_cell(self.viewport.as_str(), row, col))
+            let row_index = row.saturating_sub(1) as usize;
+            let line = self.viewport_lines.get(row_index)?.as_str();
+            let byte_index = byte_index_for_column_in_line(line, col).min(line.len());
+            let offset = *self.viewport_line_offsets.get(row_index).unwrap_or(&0);
+            Some(offset.saturating_add(byte_index))
         }
 
         fn mouse_position_to_cell(
@@ -2461,6 +2508,7 @@ fn decode_osc_52(payload: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(&decoded).into_owned())
 }
 
+#[cfg(test)]
 fn viewport_index_for_cell(viewport: &str, row: u16, col: u16) -> usize {
     let row = row.max(1) as usize;
     let col = col.max(1) as usize;
@@ -2571,23 +2619,6 @@ mod tests {
         assert_eq!(super::viewport_index_for_cell(viewport, 1, 2), 0);
         assert_eq!(super::viewport_index_for_cell(viewport, 1, 3), wide_len);
         assert_eq!(super::viewport_index_for_cell(viewport, 1, 4), wide_len + 1);
-    }
-
-    #[test]
-    fn update_viewport_string_skips_noop_updates() {
-        let mut current = gpui::SharedString::from("abc".to_string());
-
-        assert!(!super::update_viewport_string(
-            &mut current,
-            "abc".to_string()
-        ));
-        assert_eq!(current.as_str(), "abc");
-
-        assert!(super::update_viewport_string(
-            &mut current,
-            "def".to_string()
-        ));
-        assert_eq!(current.as_str(), "def");
     }
 
     #[test]

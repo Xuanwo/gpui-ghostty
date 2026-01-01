@@ -16,6 +16,10 @@ pub struct TerminalSession {
     config: TerminalConfig,
     terminal: Terminal,
     bracketed_paste_enabled: bool,
+    mouse_x10_enabled: bool,
+    mouse_button_event_enabled: bool,
+    mouse_any_event_enabled: bool,
+    mouse_sgr_enabled: bool,
     title: Option<String>,
     clipboard_write: Option<String>,
     parse_tail: Vec<u8>,
@@ -27,6 +31,10 @@ impl TerminalSession {
             config,
             terminal: Terminal::new(config.cols, config.rows)?,
             bracketed_paste_enabled: false,
+            mouse_x10_enabled: false,
+            mouse_button_event_enabled: false,
+            mouse_any_event_enabled: false,
+            mouse_sgr_enabled: false,
             title: None,
             clipboard_write: None,
             parse_tail: Vec::new(),
@@ -45,6 +53,14 @@ impl TerminalSession {
         self.bracketed_paste_enabled
     }
 
+    pub fn mouse_reporting_enabled(&self) -> bool {
+        self.mouse_x10_enabled || self.mouse_button_event_enabled || self.mouse_any_event_enabled
+    }
+
+    pub fn mouse_sgr_enabled(&self) -> bool {
+        self.mouse_sgr_enabled
+    }
+
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
@@ -54,8 +70,6 @@ impl TerminalSession {
     }
 
     fn update_state_from_output(&mut self, bytes: &[u8]) {
-        const ENABLE: &[u8] = b"\x1b[?2004h";
-        const DISABLE: &[u8] = b"\x1b[?2004l";
         const TAIL_LIMIT: usize = 2048;
 
         self.parse_tail.extend_from_slice(bytes);
@@ -66,20 +80,72 @@ impl TerminalSession {
         let buf = self.parse_tail.as_slice();
 
         let mut i = 0usize;
-        while i + 3 < buf.len() {
-            if buf[i] == 0x1b && buf[i + 1] == b'[' && buf[i + 2] == b'?' {
-                let tail = &buf[i..];
-                if tail.starts_with(ENABLE) {
-                    self.bracketed_paste_enabled = true;
-                    i += ENABLE.len();
-                    continue;
-                }
-                if tail.starts_with(DISABLE) {
-                    self.bracketed_paste_enabled = false;
-                    i += DISABLE.len();
-                    continue;
-                }
+        while i + 2 < buf.len() {
+            if buf[i] != 0x1b || buf[i + 1] != b'[' || buf[i + 2] != b'?' {
+                i += 1;
+                continue;
             }
+
+            let mut k = i + 3;
+            let mut nums: Vec<u32> = Vec::new();
+            let mut num: u32 = 0;
+            let mut saw_digit = false;
+            let mut consumed = false;
+
+            while k < buf.len() {
+                let b = buf[k];
+                if b.is_ascii_digit() {
+                    saw_digit = true;
+                    num = num.saturating_mul(10).saturating_add((b - b'0') as u32);
+                    k += 1;
+                    continue;
+                }
+
+                if b == b';' {
+                    if saw_digit {
+                        nums.push(num);
+                        num = 0;
+                        saw_digit = false;
+                    }
+                    k += 1;
+                    continue;
+                }
+
+                if b == b'h' || b == b'l' {
+                    if saw_digit {
+                        nums.push(num);
+                    }
+
+                    let enabled = b == b'h';
+                    for ps in nums {
+                        match ps {
+                            2004 => self.bracketed_paste_enabled = enabled,
+                            1000 => self.mouse_x10_enabled = enabled,
+                            1002 => self.mouse_button_event_enabled = enabled,
+                            1003 => self.mouse_any_event_enabled = enabled,
+                            1006 => self.mouse_sgr_enabled = enabled,
+                            _ => {}
+                        }
+                    }
+
+                    i = k + 1;
+                    consumed = true;
+                    break;
+                }
+
+                i += 1;
+                consumed = true;
+                break;
+            }
+
+            if k >= buf.len() && !consumed {
+                break;
+            }
+
+            if consumed {
+                continue;
+            }
+
             i += 1;
         }
 
@@ -183,7 +249,8 @@ pub mod view {
     use super::TerminalSession;
     use gpui::{
         ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
-        MouseDownEvent, Render, ScrollDelta, ScrollWheelEvent, Window, actions, div, prelude::*,
+        MouseDownEvent, MouseUpEvent, Render, ScrollDelta, ScrollWheelEvent, Window, actions, div,
+        prelude::*,
     };
 
     actions!(terminal_view, [Copy, Paste, SelectAll]);
@@ -347,11 +414,54 @@ pub mod view {
 
         fn on_mouse_down(
             &mut self,
-            _: &MouseDownEvent,
+            event: &MouseDownEvent,
             window: &mut Window,
             _cx: &mut Context<Self>,
         ) {
             self.focus_handle.focus(window);
+
+            if event.first_mouse {
+                return;
+            }
+
+            if self.input.is_none()
+                || !self.session.mouse_reporting_enabled()
+                || !self.session.mouse_sgr_enabled()
+            {
+                return;
+            }
+
+            let Some((col, row)) = self.mouse_position_to_cell(event.position, window) else {
+                return;
+            };
+
+            if let Some(input) = self.input.as_ref() {
+                let seq = format!("\x1b[<0;{};{}M", col, row);
+                input.send(seq.as_bytes());
+            }
+        }
+
+        fn on_mouse_up(
+            &mut self,
+            event: &MouseUpEvent,
+            _window: &mut Window,
+            _cx: &mut Context<Self>,
+        ) {
+            if self.input.is_none()
+                || !self.session.mouse_reporting_enabled()
+                || !self.session.mouse_sgr_enabled()
+            {
+                return;
+            }
+
+            let Some((col, row)) = self.mouse_position_to_cell(event.position, _window) else {
+                return;
+            };
+
+            if let Some(input) = self.input.as_ref() {
+                let seq = format!("\x1b[<0;{};{}m", col, row);
+                input.send(seq.as_bytes());
+            }
         }
 
         fn on_key_down(
@@ -607,7 +717,7 @@ pub mod view {
         fn on_scroll_wheel(
             &mut self,
             event: &ScrollWheelEvent,
-            _window: &mut Window,
+            window: &mut Window,
             cx: &mut Context<Self>,
         ) {
             let dy_lines: f32 = match event.delta {
@@ -620,10 +730,58 @@ pub mod view {
                 return;
             }
 
+            if let Some(input) = self.input.as_ref() {
+                if self.session.mouse_reporting_enabled() && self.session.mouse_sgr_enabled() {
+                    let Some((col, row)) = self.mouse_position_to_cell(event.position, window)
+                    else {
+                        return;
+                    };
+
+                    let button = if delta_lines < 0 { 64 } else { 65 };
+                    let steps = delta_lines.unsigned_abs().min(10);
+                    for _ in 0..steps {
+                        let seq = format!("\x1b[<{};{};{}M", button, col, row);
+                        input.send(seq.as_bytes());
+                    }
+                    return;
+                }
+            }
+
             let _ = self.session.scroll_viewport(delta_lines);
             self.refresh_viewport();
             self.apply_side_effects(cx);
             cx.notify();
+        }
+
+        fn mouse_position_to_cell(
+            &self,
+            position: gpui::Point<gpui::Pixels>,
+            window: &mut Window,
+        ) -> Option<(u16, u16)> {
+            let cols = self.session.cols();
+            let rows = self.session.rows();
+
+            let (cell_width, cell_height) = crate::cell_metrics(window)?;
+            let x = f32::from(position.x);
+            let y = f32::from(position.y);
+
+            let mut col = (x / cell_width).floor() as i32 + 1;
+            let mut row = (y / cell_height).floor() as i32 + 1;
+
+            if col < 1 {
+                col = 1;
+            }
+            if row < 1 {
+                row = 1;
+            }
+            if col > cols as i32 {
+                col = cols as i32;
+            }
+            if row > rows as i32 {
+                row = rows as i32;
+            }
+
+            Some((col as u16, row as u16))
         }
     }
 
@@ -661,6 +819,7 @@ pub mod view {
                 .on_key_down(cx.listener(Self::on_key_down))
                 .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
                 .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
                 .bg(gpui::black())
                 .text_color(gpui::white())
                 .font_family("monospace")
@@ -668,6 +827,32 @@ pub mod view {
                 .child(self.viewport.clone())
         }
     }
+}
+
+fn cell_metrics(window: &mut gpui::Window) -> Option<(f32, f32)> {
+    let mut style = window.text_style();
+    style.font_family = "monospace".into();
+
+    let rem_size = window.rem_size();
+    let font_size = style.font_size.to_pixels(rem_size);
+    let line_height = style.line_height.to_pixels(style.font_size, rem_size);
+
+    let run = style.to_run(1);
+    let lines = window
+        .text_system()
+        .shape_text(
+            gpui::SharedString::from("M"),
+            font_size,
+            &[run],
+            None,
+            Some(1),
+        )
+        .ok()?;
+    let line = lines.first()?;
+
+    let cell_width = f32::from(line.width()).max(1.0);
+    let cell_height = f32::from(line_height).max(1.0);
+    Some((cell_width, cell_height))
 }
 
 fn decode_osc_52(payload: &[u8]) -> Option<String> {
@@ -687,4 +872,39 @@ fn decode_osc_52(payload: &[u8]) -> Option<String> {
 
     let decoded = STANDARD.decode(data).ok()?;
     Some(String::from_utf8_lossy(&decoded).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TerminalConfig, TerminalSession};
+
+    #[test]
+    fn tracks_bracketed_paste_mode_from_output() {
+        let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+        assert!(!session.bracketed_paste_enabled());
+
+        session.feed(b"\x1b[?2004h").unwrap();
+        assert!(session.bracketed_paste_enabled());
+
+        session.feed(b"\x1b[?2004l").unwrap();
+        assert!(!session.bracketed_paste_enabled());
+    }
+
+    #[test]
+    fn tracks_mouse_reporting_mode_from_output() {
+        let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+        assert!(!session.mouse_reporting_enabled());
+        assert!(!session.mouse_sgr_enabled());
+
+        session.feed(b"\x1b[?1000;1006h").unwrap();
+        assert!(session.mouse_reporting_enabled());
+        assert!(session.mouse_sgr_enabled());
+
+        session.feed(b"\x1b[?1000l").unwrap();
+        assert!(!session.mouse_reporting_enabled());
+        assert!(session.mouse_sgr_enabled());
+
+        session.feed(b"\x1b[?1006l").unwrap();
+        assert!(!session.mouse_sgr_enabled());
+    }
 }

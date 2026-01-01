@@ -33,6 +33,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M4.2: PTY Resize (bounds observer)
 - [x] M4.3: Dynamic Grid Sizing (font metrics)
 - [x] M1.6: Select All + Primary Selection (cmd-a)
+- [x] M1.7: SGR Mouse Reporting (wheel + click pass-through)
 - [x] M2.5: PTY Ctrl-Key Encoding (punctuation)
 - [x] M3.3: Regression Tests (scrollback + resize)
 
@@ -52,8 +53,8 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 
 ## Future Work
 
-- M1 (remaining): Incremental damage updates, selection/copy, mouse modes.
-- M2 (remaining): OSC links, fuller keyboard encoding via Ghostty key encoder, mouse modes.
+- M1 (remaining): Incremental damage updates, selection/copy.
+- M2 (remaining): OSC links, fuller keyboard encoding via Ghostty key encoder.
 - M3 (remaining): Unicode/fallback font strategy, deep behavior regressions.
 - M4 (remaining): Better grid sizing and layout, richer end-to-end examples.
 - M5: IME support (CJK input).

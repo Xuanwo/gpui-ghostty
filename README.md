@@ -96,3 +96,9 @@ This implementation includes common terminal behaviors needed by modern TUIs:
 - DEC Special Graphics (ACS line drawing) + box drawing (procedural quads)
 
 The examples set `TERM=xterm-256color` and `COLORTERM=truecolor` to help apps enable richer output.
+
+## License
+
+This project is licensed under the Apache License, Version 2.0. See `LICENSE`.
+
+This repository vendors Ghostty as a git submodule under `vendor/ghostty`; third-party code remains under its respective licenses.

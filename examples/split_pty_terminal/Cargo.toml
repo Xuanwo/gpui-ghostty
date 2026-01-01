@@ -3,9 +3,9 @@ name = "split_pty_terminal"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "Apache-2.0"
 
 [dependencies]
 gpui_ghostty_terminal = { path = "../../crates/gpui_ghostty_terminal" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "6016d0b8c6a22e586158d3b6f810b3cebb136118", package = "gpui" }
 portable-pty = "0.9"
-

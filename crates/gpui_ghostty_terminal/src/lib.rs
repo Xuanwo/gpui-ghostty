@@ -323,6 +323,13 @@ impl TerminalSession {
         self.terminal.dump_viewport_row(row)
     }
 
+    pub fn dump_viewport_row_cell_styles(
+        &self,
+        row: u16,
+    ) -> Result<Vec<ghostty_vt::CellStyle>, Error> {
+        self.terminal.dump_viewport_row_cell_styles(row)
+    }
+
     pub fn cursor_position(&self) -> Option<(u16, u16)> {
         self.terminal.cursor_position()
     }
@@ -401,7 +408,7 @@ impl DsrScanState {
 
 pub mod view {
     use super::TerminalSession;
-    use ghostty_vt::{KeyModifiers, encode_key_named};
+    use ghostty_vt::{CellStyle, KeyModifiers, Rgb, encode_key_named};
     use gpui::{
         App, Bounds, ClipboardItem, Context, Element, ElementId, ElementInputHandler,
         EntityInputHandler, FocusHandle, GlobalElementId, IntoElement, KeyDownEvent, LayoutId,
@@ -507,6 +514,7 @@ pub mod view {
         viewport: SharedString,
         viewport_lines: Vec<String>,
         viewport_line_offsets: Vec<usize>,
+        viewport_cell_styles: Vec<Vec<CellStyle>>,
         line_layouts: Vec<Option<gpui::ShapedLine>>,
         line_layout_key: Option<(Pixels, Pixels)>,
         focus_handle: FocusHandle,
@@ -543,6 +551,7 @@ pub mod view {
                 viewport: SharedString::default(),
                 viewport_lines: Vec::new(),
                 viewport_line_offsets: Vec::new(),
+                viewport_cell_styles: Vec::new(),
                 line_layouts: Vec::new(),
                 line_layout_key: None,
                 focus_handle,
@@ -568,6 +577,7 @@ pub mod view {
                 viewport: SharedString::default(),
                 viewport_lines: Vec::new(),
                 viewport_line_offsets: Vec::new(),
+                viewport_cell_styles: Vec::new(),
                 line_layouts: Vec::new(),
                 line_layout_key: None,
                 focus_handle,
@@ -695,6 +705,9 @@ pub mod view {
             if crate::update_viewport_string(&mut self.viewport, viewport) {
                 self.viewport_lines = crate::split_viewport_lines(self.viewport.as_str());
                 self.viewport_line_offsets = Self::compute_viewport_line_offsets(&self.viewport_lines);
+                self.viewport_cell_styles = (0..self.session.rows())
+                    .map(|row| self.session.dump_viewport_row_cell_styles(row).unwrap_or_default())
+                    .collect();
                 self.line_layouts.clear();
                 self.line_layout_key = None;
                 self.selection = None;
@@ -736,6 +749,10 @@ pub mod view {
                 self.refresh_viewport();
                 return true;
             }
+            if self.viewport_cell_styles.len() != expected_rows {
+                self.refresh_viewport();
+                return true;
+            }
 
             for &row in dirty_rows {
                 let row = row as usize;
@@ -754,6 +771,10 @@ pub mod view {
                 let line = line.strip_suffix('\n').unwrap_or(line.as_str());
                 self.viewport_lines[row].clear();
                 self.viewport_lines[row].push_str(line);
+                self.viewport_cell_styles[row] = self
+                    .session
+                    .dump_viewport_row_cell_styles(row as u16)
+                    .unwrap_or_default();
                 if row < self.line_layouts.len() {
                     self.line_layouts[row] = None;
                 }
@@ -1451,6 +1472,7 @@ pub mod view {
     struct TerminalPrepaintState {
         line_height: Pixels,
         shaped_lines: Vec<gpui::ShapedLine>,
+        background_quads: Vec<PaintQuad>,
         selection_quads: Vec<PaintQuad>,
         marked_text: Option<(gpui::ShapedLine, gpui::Point<Pixels>)>,
         cursor: Option<PaintQuad>,
@@ -1534,9 +1556,9 @@ pub mod view {
         ) -> Self::PrepaintState {
             let mut style = window.text_style();
             let font = { self.view.read(cx).font.clone() };
-            style.font_family = font.family;
-            style.font_features = font.features;
-            style.font_fallbacks = font.fallbacks;
+            style.font_family = font.family.clone();
+            style.font_features = font.features.clone();
+            style.font_fallbacks = font.fallbacks.clone();
             style.color = gpui::white();
             let rem_size = window.rem_size();
             let font_size = style.font_size.to_pixels(rem_size);
@@ -1571,18 +1593,154 @@ pub mod view {
                     }
 
                     let text = SharedString::from(line.clone());
-                    let run = TextRun {
-                        len: text.len(),
-                        font: run_font.clone(),
-                        color: run_color,
-                        background_color: None,
-                        underline: None,
-                        strikethrough: None,
-                    };
-                    let shaped = window.text_system().shape_line(text, font_size, &[run], None);
+                    let mut runs: Vec<TextRun> = Vec::new();
+
+                    if let Some(cell_styles) = view.viewport_cell_styles.get(idx)
+                        && !cell_styles.is_empty()
+                    {
+                        let mut byte_pos = 0usize;
+                        let mut seg_start_col: u16 = 1;
+                        let mut seg_fg = cell_styles[0].fg;
+
+                        let mut emit_segment = |start_col: u16, end_col: u16, fg: Rgb| {
+                            let start =
+                                byte_index_for_column_in_line(text.as_str(), start_col).min(text.len());
+                            let end = byte_index_for_column_in_line(
+                                text.as_str(),
+                                end_col.saturating_add(1),
+                            )
+                            .min(text.len());
+
+                            if start > byte_pos {
+                                runs.push(TextRun {
+                                    len: start.saturating_sub(byte_pos),
+                                    font: run_font.clone(),
+                                    color: run_color,
+                                    background_color: None,
+                                    underline: None,
+                                    strikethrough: None,
+                                });
+                                byte_pos = start;
+                            }
+
+                            if end > start {
+                                let color = rgba(
+                                    (u32::from(fg.r) << 24)
+                                        | (u32::from(fg.g) << 16)
+                                        | (u32::from(fg.b) << 8)
+                                        | 0xFF,
+                                );
+                                runs.push(TextRun {
+                                    len: end.saturating_sub(start),
+                                    font: run_font.clone(),
+                                    color: color.into(),
+                                    background_color: None,
+                                    underline: None,
+                                    strikethrough: None,
+                                });
+                                byte_pos = end;
+                            }
+                        };
+
+                        for (i, style) in cell_styles.iter().enumerate().skip(1) {
+                            if style.fg == seg_fg {
+                                continue;
+                            }
+
+                            emit_segment(seg_start_col, i as u16, seg_fg);
+                            seg_start_col = i as u16 + 1;
+                            seg_fg = style.fg;
+                        }
+
+                        emit_segment(seg_start_col, cell_styles.len().min(u16::MAX as usize) as u16, seg_fg);
+
+                        if byte_pos < text.len() {
+                            runs.push(TextRun {
+                                len: text.len().saturating_sub(byte_pos),
+                                font: run_font.clone(),
+                                color: run_color,
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            });
+                        }
+                    }
+
+                    if runs.is_empty() {
+                        runs.push(TextRun {
+                            len: text.len(),
+                            font: run_font.clone(),
+                            color: run_color,
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        });
+                    }
+
+                    let shaped = window.text_system().shape_line(text, font_size, &runs, None);
                     *slot = Some(shaped);
                 }
             });
+
+            let background_quads = crate::cell_metrics(window, &font)
+                .map(|(cell_width, _)| {
+                    let default_bg = Rgb { r: 0, g: 0, b: 0 };
+                    let origin = bounds.origin;
+                    let mut quads: Vec<PaintQuad> = Vec::new();
+
+                    let view = self.view.read(cx);
+                    for (row, styles) in view.viewport_cell_styles.iter().enumerate() {
+                        if styles.is_empty() {
+                            continue;
+                        }
+
+                        let y = origin.y + line_height * row as f32;
+                        let mut run_start: usize = 0;
+                        let mut run_bg = styles[0].bg;
+
+                        for (col, style) in styles.iter().enumerate().skip(1) {
+                            if style.bg == run_bg {
+                                continue;
+                            }
+
+                            if run_bg != default_bg && col > run_start {
+                                let x = origin.x + px(cell_width * run_start as f32);
+                                let w = px(cell_width * (col - run_start) as f32);
+                                let color = rgba(
+                                    (u32::from(run_bg.r) << 24)
+                                        | (u32::from(run_bg.g) << 16)
+                                        | (u32::from(run_bg.b) << 8)
+                                        | 0xFF,
+                                );
+                                quads.push(fill(
+                                    Bounds::new(point(x, y), size(w, line_height)),
+                                    color,
+                                ));
+                            }
+
+                            run_start = col;
+                            run_bg = style.bg;
+                        }
+
+                        if run_bg != default_bg && styles.len() > run_start {
+                            let x = origin.x + px(cell_width * run_start as f32);
+                            let w = px(cell_width * (styles.len() - run_start) as f32);
+                            let color = rgba(
+                                (u32::from(run_bg.r) << 24)
+                                    | (u32::from(run_bg.g) << 16)
+                                    | (u32::from(run_bg.b) << 8)
+                                    | 0xFF,
+                            );
+                            quads.push(fill(
+                                Bounds::new(point(x, y), size(w, line_height)),
+                                color,
+                            ));
+                        }
+                    }
+
+                    quads
+                })
+                .unwrap_or_default();
 
             let (shaped_lines, selection, line_offsets) = {
                 let view = self.view.read(cx);
@@ -1697,6 +1855,7 @@ pub mod view {
             TerminalPrepaintState {
                 line_height,
                 shaped_lines,
+                background_quads,
                 selection_quads,
                 marked_text,
                 cursor,
@@ -1719,6 +1878,10 @@ pub mod view {
                 ElementInputHandler::new(bounds, self.view.clone()),
                 cx,
             );
+
+            for quad in prepaint.background_quads.drain(..) {
+                window.paint_quad(quad);
+            }
 
             for quad in prepaint.selection_quads.drain(..) {
                 window.paint_quad(quad);

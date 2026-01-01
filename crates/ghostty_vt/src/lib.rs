@@ -27,6 +27,20 @@ pub struct Terminal {
     ptr: NonNull<c_void>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CellStyle {
+    pub fg: Rgb,
+    pub bg: Rgb,
+    pub flags: u8,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KeyModifiers {
     pub shift: bool,
@@ -124,6 +138,44 @@ impl Terminal {
         let s = String::from_utf8_lossy(slice).into_owned();
         unsafe { ghostty_vt_sys::ghostty_vt_bytes_free(bytes) };
         Ok(s)
+    }
+
+    pub fn dump_viewport_row_cell_styles(&self, row: u16) -> Result<Vec<CellStyle>, Error> {
+        let bytes = unsafe {
+            ghostty_vt_sys::ghostty_vt_terminal_dump_viewport_row_cell_styles(self.ptr.as_ptr(), row)
+        };
+        if bytes.ptr.is_null() {
+            return Err(Error::DumpFailed);
+        }
+        if bytes.len == 0 {
+            unsafe { ghostty_vt_sys::ghostty_vt_bytes_free(bytes) };
+            return Ok(Vec::new());
+        }
+        if bytes.len % 8 != 0 {
+            unsafe { ghostty_vt_sys::ghostty_vt_bytes_free(bytes) };
+            return Err(Error::DumpFailed);
+        }
+
+        let slice = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) };
+        let mut out = Vec::with_capacity(bytes.len / 8);
+        for chunk in slice.chunks_exact(8) {
+            out.push(CellStyle {
+                fg: Rgb {
+                    r: chunk[0],
+                    g: chunk[1],
+                    b: chunk[2],
+                },
+                bg: Rgb {
+                    r: chunk[3],
+                    g: chunk[4],
+                    b: chunk[5],
+                },
+                flags: chunk[6],
+            });
+        }
+
+        unsafe { ghostty_vt_sys::ghostty_vt_bytes_free(bytes) };
+        Ok(out)
     }
 
     pub fn take_dirty_viewport_rows(&mut self, rows: u16) -> Result<Vec<u16>, Error> {

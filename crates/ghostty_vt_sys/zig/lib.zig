@@ -66,6 +66,10 @@ const Handler = struct {
         self.terminal.carriageReturn();
     }
 
+    pub fn setAttribute(self: *Handler, attr: terminal.Attribute) !void {
+        try self.terminal.setAttribute(attr);
+    }
+
     pub fn invokeCharset(
         self: *Handler,
         active: terminal.CharsetActiveSlot,
@@ -240,6 +244,78 @@ export fn ghostty_vt_terminal_dump_viewport_row(
     }) catch return .{ .ptr = null, .len = 0 };
 
     const slice = builder.toOwnedSlice() catch return .{ .ptr = null, .len = 0 };
+    return .{ .ptr = slice.ptr, .len = slice.len };
+}
+
+const CellStyle = extern struct {
+    fg_r: u8,
+    fg_g: u8,
+    fg_b: u8,
+    bg_r: u8,
+    bg_g: u8,
+    bg_b: u8,
+    flags: u8,
+    reserved: u8,
+};
+
+export fn ghostty_vt_terminal_dump_viewport_row_cell_styles(
+    terminal_ptr: ?*anyopaque,
+    row: u16,
+) callconv(.C) ghostty_vt_bytes_t {
+    if (terminal_ptr == null) return .{ .ptr = null, .len = 0 };
+    const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
+
+    const pt: terminal.point.Point = .{ .viewport = .{ .x = 0, .y = row } };
+    const pin = handle.terminal.screen.pages.pin(pt) orelse return .{ .ptr = null, .len = 0 };
+    const cells = pin.cells(.all);
+
+    const default_fg: terminal.color.RGB = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
+    const default_bg: terminal.color.RGB = .{ .r = 0x00, .g = 0x00, .b = 0x00 };
+    const palette: *const terminal.color.Palette = &handle.terminal.color_palette.colors;
+
+    const alloc = std.heap.c_allocator;
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+
+    out.ensureTotalCapacity(cells.len * @sizeOf(CellStyle)) catch return .{ .ptr = null, .len = 0 };
+
+    for (cells) |*cell| {
+        const s = pin.style(cell);
+
+        var fg = s.fg(.{ .default = default_fg, .palette = palette, .bold = null });
+        var bg = s.bg(cell, palette) orelse default_bg;
+
+        var flags: u8 = 0;
+        if (s.flags.inverse) flags |= 0x01;
+        if (s.flags.bold) flags |= 0x02;
+        if (s.flags.italic) flags |= 0x04;
+        if (s.flags.underline != .none) flags |= 0x08;
+        if (s.flags.faint) flags |= 0x10;
+        if (s.flags.invisible) flags |= 0x20;
+
+        if (s.flags.inverse) {
+            const tmp = fg;
+            fg = bg;
+            bg = tmp;
+        }
+        if (s.flags.invisible) {
+            fg = bg;
+        }
+
+        const rec = CellStyle{
+            .fg_r = fg.r,
+            .fg_g = fg.g,
+            .fg_b = fg.b,
+            .bg_r = bg.r,
+            .bg_g = bg.g,
+            .bg_b = bg.b,
+            .flags = flags,
+            .reserved = 0,
+        };
+        out.appendSlice(std.mem.asBytes(&rec)) catch return .{ .ptr = null, .len = 0 };
+    }
+
+    const slice = out.toOwnedSlice() catch return .{ .ptr = null, .len = 0 };
     return .{ .ptr = slice.ptr, .len = slice.len };
 }
 

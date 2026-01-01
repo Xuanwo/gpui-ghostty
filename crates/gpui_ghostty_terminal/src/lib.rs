@@ -248,10 +248,11 @@ impl TerminalSession {
 pub mod view {
     use super::TerminalSession;
     use gpui::{
-        ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton,
-        MouseDownEvent, MouseUpEvent, Render, ScrollDelta, ScrollWheelEvent, Window, actions, div,
-        prelude::*,
+        ClipboardItem, Context, FocusHandle, HighlightStyle, IntoElement, KeyDownEvent,
+        MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render, ScrollDelta,
+        ScrollWheelEvent, StyledText, Window, actions, div, prelude::*,
     };
+    use std::ops::Range;
 
     actions!(terminal_view, [Copy, Paste, SelectAll]);
 
@@ -279,6 +280,23 @@ pub mod view {
         input: Option<TerminalInput>,
         pending_output: Vec<u8>,
         pending_refresh: bool,
+        selection: Option<ByteSelection>,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct ByteSelection {
+        anchor: usize,
+        active: usize,
+    }
+
+    impl ByteSelection {
+        fn range(self) -> Range<usize> {
+            if self.anchor <= self.active {
+                self.anchor..self.active
+            } else {
+                self.active..self.anchor
+            }
+        }
     }
 
     impl TerminalView {
@@ -291,6 +309,7 @@ pub mod view {
                 input: None,
                 pending_output: Vec::new(),
                 pending_refresh: false,
+                selection: None,
             }
             .with_refreshed_viewport()
         }
@@ -308,6 +327,7 @@ pub mod view {
                 input: Some(input),
                 pending_output: Vec::new(),
                 pending_refresh: false,
+                selection: None,
             }
             .with_refreshed_viewport()
         }
@@ -319,6 +339,7 @@ pub mod view {
 
         fn refresh_viewport(&mut self) {
             self.viewport = self.session.dump_viewport().unwrap_or_default();
+            self.selection = None;
         }
 
         fn apply_side_effects(&mut self, cx: &mut Context<Self>) {
@@ -402,13 +423,24 @@ pub mod view {
         }
 
         fn on_copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
-            let item = ClipboardItem::new_string(self.viewport.clone());
+            let selection = self
+                .selection
+                .map(|s| s.range())
+                .filter(|range| !range.is_empty())
+                .and_then(|range| self.viewport.get(range))
+                .unwrap_or(self.viewport.as_str());
+
+            let item = ClipboardItem::new_string(selection.to_string());
             cx.write_to_clipboard(item.clone());
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             cx.write_to_primary(item);
         }
 
         fn on_select_all(&mut self, _: &SelectAll, window: &mut Window, cx: &mut Context<Self>) {
+            self.selection = Some(ByteSelection {
+                anchor: 0,
+                active: self.viewport.len(),
+            });
             self.on_copy(&Copy, window, cx);
         }
 
@@ -416,7 +448,7 @@ pub mod view {
             &mut self,
             event: &MouseDownEvent,
             window: &mut Window,
-            _cx: &mut Context<Self>,
+            cx: &mut Context<Self>,
         ) {
             self.focus_handle.focus(window);
 
@@ -424,10 +456,18 @@ pub mod view {
                 return;
             }
 
-            if self.input.is_none()
+            if event.modifiers.shift
+                || self.input.is_none()
                 || !self.session.mouse_reporting_enabled()
                 || !self.session.mouse_sgr_enabled()
             {
+                if let Some(index) = self.mouse_position_to_viewport_index(event.position, window) {
+                    self.selection = Some(ByteSelection {
+                        anchor: index,
+                        active: index,
+                    });
+                    cx.notify();
+                }
                 return;
             }
 
@@ -444,23 +484,64 @@ pub mod view {
         fn on_mouse_up(
             &mut self,
             event: &MouseUpEvent,
-            _window: &mut Window,
-            _cx: &mut Context<Self>,
+            window: &mut Window,
+            cx: &mut Context<Self>,
         ) {
-            if self.input.is_none()
+            if event.modifiers.shift
+                || self.input.is_none()
                 || !self.session.mouse_reporting_enabled()
                 || !self.session.mouse_sgr_enabled()
             {
+                if let Some(selection) = self.selection {
+                    if selection.range().is_empty() {
+                        self.selection = None;
+                    }
+                    cx.notify();
+                }
                 return;
             }
 
-            let Some((col, row)) = self.mouse_position_to_cell(event.position, _window) else {
+            let Some((col, row)) = self.mouse_position_to_cell(event.position, window) else {
                 return;
             };
 
             if let Some(input) = self.input.as_ref() {
                 let seq = format!("\x1b[<0;{};{}m", col, row);
                 input.send(seq.as_bytes());
+            }
+        }
+
+        fn on_mouse_move(
+            &mut self,
+            event: &MouseMoveEvent,
+            window: &mut Window,
+            cx: &mut Context<Self>,
+        ) {
+            if !event.dragging() {
+                return;
+            }
+
+            if self.selection.is_none() {
+                return;
+            }
+
+            if !event.modifiers.shift
+                && self.input.is_some()
+                && self.session.mouse_reporting_enabled()
+                && self.session.mouse_sgr_enabled()
+            {
+                return;
+            }
+
+            let Some(index) = self.mouse_position_to_viewport_index(event.position, window) else {
+                return;
+            };
+
+            if let Some(selection) = self.selection.as_mut() {
+                if selection.active != index {
+                    selection.active = index;
+                    cx.notify();
+                }
             }
         }
 
@@ -753,6 +834,19 @@ pub mod view {
             cx.notify();
         }
 
+        fn mouse_position_to_viewport_index(
+            &self,
+            position: gpui::Point<gpui::Pixels>,
+            window: &mut Window,
+        ) -> Option<usize> {
+            let (col, row) = self.mouse_position_to_cell(position, window)?;
+            Some(crate::viewport_index_for_cell(
+                self.viewport.as_str(),
+                row,
+                col,
+            ))
+        }
+
         fn mouse_position_to_cell(
             &self,
             position: gpui::Point<gpui::Pixels>,
@@ -818,13 +912,28 @@ pub mod view {
                 .on_action(cx.listener(Self::on_paste))
                 .on_key_down(cx.listener(Self::on_key_down))
                 .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
+                .on_mouse_move(cx.listener(Self::on_mouse_move))
                 .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
                 .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
                 .bg(gpui::black())
                 .text_color(gpui::white())
                 .font_family("monospace")
                 .whitespace_nowrap()
-                .child(self.viewport.clone())
+                .child({
+                    let highlight = HighlightStyle {
+                        background_color: Some(gpui::hsla(0.58, 0.9, 0.55, 0.35)),
+                        ..Default::default()
+                    };
+
+                    let mut text = StyledText::new(self.viewport.clone());
+                    if let Some(selection) = self.selection {
+                        let range = selection.range();
+                        if !range.is_empty() {
+                            text = text.with_highlights([(range, highlight)]);
+                        }
+                    }
+                    text
+                })
         }
     }
 }
@@ -874,6 +983,39 @@ fn decode_osc_52(payload: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(&decoded).into_owned())
 }
 
+fn viewport_index_for_cell(viewport: &str, row: u16, col: u16) -> usize {
+    let row = row.max(1) as usize;
+    let col = col.max(1) as usize;
+
+    let mut current_row = 1usize;
+    let mut offset = 0usize;
+
+    for segment in viewport.split_inclusive('\n') {
+        let line = segment.strip_suffix('\n').unwrap_or(segment);
+
+        if current_row == row {
+            if col == 1 {
+                return offset;
+            }
+
+            let mut current_col = 1usize;
+            for (byte_index, _) in line.char_indices() {
+                if current_col == col {
+                    return offset + byte_index;
+                }
+                current_col += 1;
+            }
+
+            return offset + line.len();
+        }
+
+        offset = offset.saturating_add(segment.len());
+        current_row += 1;
+    }
+
+    viewport.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{TerminalConfig, TerminalSession};
@@ -906,5 +1048,25 @@ mod tests {
 
         session.feed(b"\x1b[?1006l").unwrap();
         assert!(!session.mouse_sgr_enabled());
+    }
+
+    #[test]
+    fn viewport_index_maps_row_and_column_to_byte_index() {
+        let viewport = "abc\ndef";
+
+        assert_eq!(super::viewport_index_for_cell(viewport, 1, 1), 0);
+        assert_eq!(super::viewport_index_for_cell(viewport, 1, 2), 1);
+        assert_eq!(super::viewport_index_for_cell(viewport, 1, 4), 3);
+        assert_eq!(super::viewport_index_for_cell(viewport, 1, 5), 3);
+
+        assert_eq!(super::viewport_index_for_cell(viewport, 2, 1), 4);
+        assert_eq!(super::viewport_index_for_cell(viewport, 2, 2), 5);
+        assert_eq!(super::viewport_index_for_cell(viewport, 2, 4), 7);
+        assert_eq!(super::viewport_index_for_cell(viewport, 2, 5), 7);
+
+        assert_eq!(
+            super::viewport_index_for_cell(viewport, 3, 1),
+            viewport.len()
+        );
     }
 }

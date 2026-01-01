@@ -33,6 +33,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M4.2: PTY Resize (bounds observer)
 - [x] M4.3: Dynamic Grid Sizing (font metrics)
 - [x] M1.6: Select All + Primary Selection (cmd-a)
+- [x] M2.5: PTY Ctrl-Key Encoding (punctuation)
 
 ## User Work
 

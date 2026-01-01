@@ -367,26 +367,34 @@ pub mod view {
             }
 
             if keystroke.modifiers.control {
+                let mut ctrl_byte: Option<u8> = None;
+
                 if let Some(text) = keystroke.key_char.as_deref() {
                     let bytes = text.as_bytes();
                     if bytes.len() == 1 {
                         let b = bytes[0];
-                        let b = match b {
-                            b'a'..=b'z' => b - b'a' + 1,
-                            b'A'..=b'Z' => b - b'A' + 1,
-                            _ => return,
-                        };
-
-                        if let Some(input) = self.input.as_ref() {
-                            input.send(&[b]);
-                            return;
+                        if (b'@'..=b'_').contains(&b) {
+                            ctrl_byte = Some(b & 0x1f);
+                        } else if (b'a'..=b'z').contains(&b) {
+                            ctrl_byte = Some(b - b'a' + 1);
+                        } else if (b'A'..=b'Z').contains(&b) {
+                            ctrl_byte = Some(b - b'A' + 1);
                         }
-
-                        let _ = self.session.feed(&[b]);
-                        self.refresh_viewport();
-                        self.apply_side_effects(cx);
-                        cx.notify();
                     }
+                } else if keystroke.key == "space" {
+                    ctrl_byte = Some(0x00);
+                }
+
+                if let Some(b) = ctrl_byte {
+                    if let Some(input) = self.input.as_ref() {
+                        input.send(&[b]);
+                        return;
+                    }
+
+                    let _ = self.session.feed(&[b]);
+                    self.refresh_viewport();
+                    self.apply_side_effects(cx);
+                    cx.notify();
                 }
                 return;
             }

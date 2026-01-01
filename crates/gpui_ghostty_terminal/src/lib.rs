@@ -967,12 +967,6 @@ pub mod view {
                     input.send(&encoded);
                     return;
                 }
-
-                if let Some(text) = keystroke.key_char.as_deref() {
-                    input.send(text.as_bytes());
-                    return;
-                }
-
                 return;
             }
 
@@ -1004,12 +998,14 @@ pub mod view {
                 _ => {}
             }
 
-            if let Some(text) = keystroke.key_char.as_deref() {
-                if let Some(input) = self.input.as_ref() {
-                    input.send(text.as_bytes());
-                    return;
-                }
-                let _ = self.session.feed(text.as_bytes());
+            let modifiers = KeyModifiers {
+                shift: keystroke.modifiers.shift,
+                control: keystroke.modifiers.control,
+                alt: keystroke.modifiers.alt,
+                super_key: false,
+            };
+            if let Some(encoded) = encode_key_named(&keystroke.key, modifiers) {
+                let _ = self.session.feed(&encoded);
                 self.apply_side_effects(cx);
                 self.schedule_viewport_refresh(cx);
                 return;
@@ -1271,7 +1267,12 @@ pub mod view {
             window: &mut Window,
             cx: &mut App,
         ) -> Self::PrepaintState {
-            let style = window.text_style();
+            let mut style = window.text_style();
+            let font = { self.view.read(cx).font.clone() };
+            style.font_family = font.family;
+            style.font_features = font.features;
+            style.font_fallbacks = font.fallbacks;
+            style.color = gpui::white();
             let rem_size = window.rem_size();
             let font_size = style.font_size.to_pixels(rem_size);
             let line_height = style.line_height.to_pixels(style.font_size, rem_size);
@@ -1531,6 +1532,14 @@ fn cell_metrics(window: &mut gpui::Window, font: &gpui::Font) -> Option<(f32, f3
 
 pub fn default_terminal_font() -> gpui::Font {
     let fallbacks = gpui::FontFallbacks::from_fonts(vec![
+        "Sarasa Mono SC".to_string(),
+        "Sarasa Term SC".to_string(),
+        "Sarasa Mono J".to_string(),
+        "Noto Sans Mono CJK SC".to_string(),
+        "Noto Sans Mono CJK JP".to_string(),
+        "Noto Sans Mono".to_string(),
+        "Source Han Mono SC".to_string(),
+        "WenQuanYi Zen Hei Mono".to_string(),
         "Apple Color Emoji".to_string(),
         "Noto Color Emoji".to_string(),
         "Segoe UI Emoji".to_string(),

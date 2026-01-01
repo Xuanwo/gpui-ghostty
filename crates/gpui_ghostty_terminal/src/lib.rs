@@ -28,6 +28,33 @@ fn should_skip_key_down_for_ime(has_input: bool, keystroke: &gpui::Keystroke) ->
     )
 }
 
+fn ctrl_byte_for_keystroke(keystroke: &gpui::Keystroke) -> Option<u8> {
+    let candidate = keystroke
+        .key_char
+        .as_deref()
+        .or_else(|| (!keystroke.key.is_empty()).then_some(keystroke.key.as_str()))?;
+
+    if candidate == "space" {
+        return Some(0x00);
+    }
+
+    let bytes = candidate.as_bytes();
+    if bytes.len() != 1 {
+        return None;
+    }
+
+    let b = bytes[0];
+    if (b'@'..=b'_').contains(&b) {
+        Some(b & 0x1f)
+    } else if (b'a'..=b'z').contains(&b) {
+        Some(b - b'a' + 1)
+    } else if (b'A'..=b'Z').contains(&b) {
+        Some(b - b'A' + 1)
+    } else {
+        None
+    }
+}
+
 fn sgr_mouse_button_value(
     base_button: u8,
     motion: bool,
@@ -1278,25 +1305,7 @@ pub mod view {
                 }
 
                 if keystroke.modifiers.control {
-                    let mut ctrl_byte: Option<u8> = None;
-
-                    if let Some(text) = keystroke.key_char.as_deref() {
-                        let bytes = text.as_bytes();
-                        if bytes.len() == 1 {
-                            let b = bytes[0];
-                            if (b'@'..=b'_').contains(&b) {
-                                ctrl_byte = Some(b & 0x1f);
-                            } else if (b'a'..=b'z').contains(&b) {
-                                ctrl_byte = Some(b - b'a' + 1);
-                            } else if (b'A'..=b'Z').contains(&b) {
-                                ctrl_byte = Some(b - b'A' + 1);
-                            }
-                        }
-                    } else if keystroke.key == "space" {
-                        ctrl_byte = Some(0x00);
-                    }
-
-                    if let Some(b) = ctrl_byte {
+                    if let Some(b) = super::ctrl_byte_for_keystroke(&keystroke) {
                         input.send(&[b]);
                         return;
                     }
@@ -2839,6 +2848,12 @@ mod tests {
         let expected =
             super::osc_color_query_response(super::OscQuery::BackgroundColor, (0x00, 0x00, 0x00));
         assert_eq!(response, expected.as_bytes());
+    }
+
+    #[test]
+    fn ctrl_c_encodes_to_etx_even_without_key_char() {
+        let ctrl_c = Keystroke::parse("ctrl-c").unwrap();
+        assert_eq!(super::ctrl_byte_for_keystroke(&ctrl_c), Some(0x03));
     }
 
     #[test]

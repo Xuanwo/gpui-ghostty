@@ -80,6 +80,16 @@ pub(crate) fn sgr_mouse_button_value(
     value
 }
 
+fn window_position_to_local(
+    last_bounds: Option<Bounds<Pixels>>,
+    position: gpui::Point<gpui::Pixels>,
+) -> gpui::Point<gpui::Pixels> {
+    let origin = last_bounds
+        .map(|bounds| bounds.origin)
+        .unwrap_or_else(|| point(px(0.0), px(0.0)));
+    point(position.x - origin.x, position.y - origin.y)
+}
+
 pub(crate) fn sgr_mouse_sequence(button_value: u8, col: u16, row: u16, pressed: bool) -> String {
     let suffix = if pressed { 'M' } else { 'm' };
     format!("\x1b[<{};{};{}{}", button_value, col, row, suffix)
@@ -192,6 +202,7 @@ pub struct TerminalView {
     viewport_style_runs: Vec<Vec<StyleRun>>,
     line_layouts: Vec<Option<gpui::ShapedLine>>,
     line_layout_key: Option<(Pixels, Pixels)>,
+    last_bounds: Option<Bounds<Pixels>>,
     focus_handle: FocusHandle,
     last_window_title: Option<String>,
     input: Option<TerminalInput>,
@@ -229,6 +240,7 @@ impl TerminalView {
             viewport_style_runs: Vec::new(),
             line_layouts: Vec::new(),
             line_layout_key: None,
+            last_bounds: None,
             focus_handle,
             last_window_title: None,
             input: None,
@@ -255,6 +267,7 @@ impl TerminalView {
             viewport_style_runs: Vec::new(),
             line_layouts: Vec::new(),
             line_layout_key: None,
+            last_bounds: None,
             focus_handle,
             last_window_title: None,
             input: Some(input),
@@ -1057,6 +1070,7 @@ impl TerminalView {
         let cols = self.session.cols();
         let rows = self.session.rows();
 
+        let position = self.mouse_position_to_local(position);
         let (cell_width, cell_height) = cell_metrics(window, &self.font)?;
         let x = f32::from(position.x);
         let y = f32::from(position.y);
@@ -1078,6 +1092,13 @@ impl TerminalView {
         }
 
         Some((col as u16, row as u16))
+    }
+
+    fn mouse_position_to_local(
+        &self,
+        position: gpui::Point<gpui::Pixels>,
+    ) -> gpui::Point<gpui::Pixels> {
+        window_position_to_local(self.last_bounds, position)
     }
 }
 
@@ -1214,6 +1235,17 @@ fn hsla_from_rgb(rgb: Rgb) -> gpui::Hsla {
         a: 1.0,
     };
     rgba.into()
+}
+
+fn cursor_color_for_background(background: Rgb) -> gpui::Hsla {
+    let bg = hsla_from_rgb(background);
+    let mut cursor = if bg.l > 0.6 {
+        gpui::black()
+    } else {
+        gpui::white()
+    };
+    cursor.a = 0.72;
+    cursor
 }
 
 fn font_for_flags(base: &gpui::Font, flags: u8) -> gpui::Font {
@@ -1805,6 +1837,8 @@ impl Element for TerminalTextElement {
                 .flatten()
         }
         .and_then(|(col, row)| {
+            let background = { self.view.read(cx).session.default_background() };
+            let cursor_color = cursor_color_for_background(background);
             let y = bounds.top() + line_height * (row.saturating_sub(1)) as f32;
             let row_index = row.saturating_sub(1) as usize;
             let line = shaped_lines.get(row_index)?;
@@ -1813,7 +1847,7 @@ impl Element for TerminalTextElement {
 
             Some(fill(
                 Bounds::new(point(x, y), size(px(2.0), line_height)),
-                rgba(0xffffffaa),
+                cursor_color,
             ))
         });
 
@@ -1839,6 +1873,10 @@ impl Element for TerminalTextElement {
         window: &mut Window,
         cx: &mut App,
     ) {
+        self.view.update(cx, |view, _cx| {
+            view.last_bounds = Some(bounds);
+        });
+
         let focus_handle = { self.view.read(cx).focus_handle.clone() };
         window.handle_input(
             &focus_handle,
@@ -1986,7 +2024,9 @@ pub(crate) fn cell_metrics(window: &mut gpui::Window, font: &gpui::Font) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use super::{url_at_byte_index, url_at_column_in_line};
+    use ghostty_vt::Rgb;
+
+    use super::{url_at_byte_index, url_at_column_in_line, window_position_to_local};
 
     #[test]
     fn url_detection_finds_https_links() {
@@ -2009,5 +2049,35 @@ mod tests {
             url_at_column_in_line(line, 10).as_deref(),
             Some("https://google.com")
         );
+    }
+
+    #[test]
+    fn mouse_position_to_local_accounts_for_bounds_origin() {
+        let bounds = Some(gpui::Bounds::new(
+            gpui::point(gpui::px(100.0), gpui::px(20.0)),
+            gpui::size(gpui::px(200.0), gpui::px(80.0)),
+        ));
+
+        let local = window_position_to_local(bounds, gpui::point(gpui::px(110.0), gpui::px(30.0)));
+        assert_eq!(local, gpui::point(gpui::px(10.0), gpui::px(10.0)));
+    }
+
+    #[test]
+    fn cursor_color_contrasts_with_background() {
+        let cursor = super::cursor_color_for_background(Rgb {
+            r: 0xFF,
+            g: 0xFF,
+            b: 0xFF,
+        });
+        assert!(cursor.l < 0.2);
+        assert!((cursor.a - 0.72).abs() < f32::EPSILON);
+
+        let cursor = super::cursor_color_for_background(Rgb {
+            r: 0x00,
+            g: 0x00,
+            b: 0x00,
+        });
+        assert!(cursor.l > 0.8);
+        assert!((cursor.a - 0.72).abs() < f32::EPSILON);
     }
 }

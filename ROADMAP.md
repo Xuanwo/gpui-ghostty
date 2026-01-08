@@ -70,6 +70,8 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] M7.3: Tests (move + expand unit test coverage)
 - [x] M7.4: README (document current module layout + API)
 - [x] Sync downstream GPUI terminal fixes from luban (mouse hit-testing offset + cursor contrast + tests)
+- [x] Improve dirty propagation for mode/palette changes (force full redraw when needed).
+- [x] Add regression tests for full-redraw triggers (alt-screen, reverse colors, palette).
 
 ## User Work
 

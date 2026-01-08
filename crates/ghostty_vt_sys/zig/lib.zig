@@ -106,6 +106,7 @@ const Handler = struct {
                     .palette => |i| {
                         self.terminal.color_palette.colors[i] = set.color;
                         self.terminal.color_palette.mask.set(i);
+                        self.terminal.flags.dirty.palette = true;
                     },
                     else => {},
                 },
@@ -113,6 +114,7 @@ const Handler = struct {
                     .palette => |i| {
                         self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
                         self.terminal.color_palette.mask.unset(i);
+                        self.terminal.flags.dirty.palette = true;
                     },
                     else => {},
                 },
@@ -124,6 +126,7 @@ const Handler = struct {
                         self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
                     }
                     self.terminal.color_palette.mask = .initEmpty();
+                    self.terminal.flags.dirty.palette = true;
                 },
                 else => {},
             }
@@ -177,7 +180,15 @@ const Handler = struct {
     }
 
     pub fn setMode(self: *Handler, mode: terminal.Mode, enabled: bool) !void {
+        const prev = self.terminal.modes.get(mode);
         self.terminal.modes.set(mode, enabled);
+
+        if (prev != enabled) {
+            switch (mode) {
+                .reverse_colors => self.terminal.flags.dirty.reverse_colors = true,
+                else => {},
+            }
+        }
 
         switch (mode) {
             .alt_screen_legacy => self.terminal.switchScreenMode(.@"47", enabled),
@@ -591,9 +602,13 @@ export fn ghostty_vt_terminal_take_dirty_viewport_rows(
     var out = std.ArrayList(u8).init(alloc);
     errdefer out.deinit();
 
-    const force_full_redraw = handle.terminal.flags.dirty.clear;
+    const dirty = handle.terminal.flags.dirty;
+    const force_full_redraw = dirty.clear or dirty.palette or dirty.reverse_colors or dirty.preedit;
     if (force_full_redraw) {
         handle.terminal.flags.dirty.clear = false;
+        handle.terminal.flags.dirty.palette = false;
+        handle.terminal.flags.dirty.reverse_colors = false;
+        handle.terminal.flags.dirty.preedit = false;
     }
 
     var y: u32 = 0;

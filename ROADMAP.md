@@ -108,6 +108,7 @@ Deliver a maintainable Rust workspace that bootstraps an embedded terminal contr
 - [x] Switch gpui (Zed) to workspace dependency and pin `rev = "v0.217.3"`.
 - [x] Use unpinned Zed git dependency (no rev) and lock to `cff3ac6f93f506330034652f0d2389591bfb45a0`.
 - [x] Fix Tab focus escape: TerminalView should consume Tab/Shift-Tab when focused.
+- [x] Fix alt-screen exit stale viewport: map terminal dirty.clear to dirty rows.
 
 ## Future Work
 

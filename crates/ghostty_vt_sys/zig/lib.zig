@@ -175,6 +175,17 @@ const Handler = struct {
     pub fn endHyperlink(self: *Handler) !void {
         self.terminal.screen.endHyperlink();
     }
+
+    pub fn setMode(self: *Handler, mode: terminal.Mode, enabled: bool) !void {
+        self.terminal.modes.set(mode, enabled);
+
+        switch (mode) {
+            .alt_screen_legacy => self.terminal.switchScreenMode(.@"47", enabled),
+            .alt_screen => self.terminal.switchScreenMode(.@"1047", enabled),
+            .alt_screen_save_cursor_clear_enter => self.terminal.switchScreenMode(.@"1049", enabled),
+            else => {},
+        }
+    }
 };
 
 export fn ghostty_vt_terminal_new(cols: u16, rows: u16) callconv(.C) ?*anyopaque {
@@ -580,11 +591,16 @@ export fn ghostty_vt_terminal_take_dirty_viewport_rows(
     var out = std.ArrayList(u8).init(alloc);
     errdefer out.deinit();
 
+    const force_full_redraw = handle.terminal.flags.dirty.clear;
+    if (force_full_redraw) {
+        handle.terminal.flags.dirty.clear = false;
+    }
+
     var y: u32 = 0;
     while (y < rows) : (y += 1) {
         const pt: terminal.point.Point = .{ .viewport = .{ .x = 0, .y = y } };
         const pin = handle.terminal.screen.pages.pin(pt) orelse continue;
-        if (!pin.isDirty()) continue;
+        if (!force_full_redraw and !pin.isDirty()) continue;
 
         const v: u16 = @intCast(y);
         out.append(@intCast(v & 0xFF)) catch return .{ .ptr = null, .len = 0 };

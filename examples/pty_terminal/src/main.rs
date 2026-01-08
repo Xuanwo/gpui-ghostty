@@ -54,6 +54,18 @@ fn main() {
             let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>();
             let (stdout_tx, stdout_rx) = mpsc::channel::<Vec<u8>>();
 
+            if let Ok(cmd) = std::env::var("GPUI_GHOSTTY_PTY_DEMO_COMMAND") {
+                let stdin_tx = stdin_tx.clone();
+                thread::spawn(move || {
+                    thread::sleep(Duration::from_millis(300));
+                    let mut cmd = cmd;
+                    if !cmd.ends_with('\n') {
+                        cmd.push('\n');
+                    }
+                    let _ = stdin_tx.send(cmd.into_bytes());
+                });
+            }
+
             thread::spawn(move || {
                 while let Ok(bytes) = stdin_rx.recv() {
                     if pty_writer.write_all(&bytes).is_err() {
@@ -80,6 +92,7 @@ fn main() {
                 focus_handle.focus(window, cx);
 
                 let session = TerminalSession::new(config).expect("vt init");
+                let stdin_tx = stdin_tx.clone();
                 let input = TerminalInput::new(move |bytes| {
                     let _ = stdin_tx.send(bytes.to_vec());
                 });

@@ -1,4 +1,5 @@
 /target
+/traces/
 **/*.DS_Store
 crates/ghostty_vt_sys/zig/.zig-cache
 

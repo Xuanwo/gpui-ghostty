@@ -1575,6 +1575,14 @@ impl Element for TerminalTextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
+        // Update last_bounds early (during prepaint) so that mouse event
+        // handlers on the current frame have accurate bounds for coordinate
+        // conversion. Without this, selection coordinates are offset by the
+        // element's position after layout changes (e.g. pane switches).
+        self.view.update(cx, |view, _cx| {
+            view.last_bounds = Some(bounds);
+        });
+
         let mut style = window.text_style();
         let font = { self.view.read(cx).font.clone() };
         style.font_family = font.family.clone();

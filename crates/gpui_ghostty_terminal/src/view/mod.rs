@@ -1135,8 +1135,10 @@ impl TerminalView {
             return None;
         }
 
-        let (_, cell_height) = cell_metrics(window, &self.font)?;
-        let y = f32::from(position.y);
+        let local_position = self.mouse_position_to_local(position);
+        let (cell_width, cell_height) = cell_metrics(window, &self.font)?;
+        let x = f32::from(local_position.x);
+        let y = f32::from(local_position.y);
         let mut row_index = (y / cell_height).floor() as i32;
         if row_index < 0 {
             row_index = 0;
@@ -1148,14 +1150,19 @@ impl TerminalView {
 
         if let Some(Some(line)) = self.line_layouts.get(row_index) {
             let byte_index = line
-                .closest_index_for_x(px(f32::from(position.x)))
+                .closest_index_for_x(px(x))
                 .min(line.text.len());
             let offset = *self.viewport_line_offsets.get(row_index).unwrap_or(&0);
             return Some(offset.saturating_add(byte_index));
         }
 
-        let (col, row) = self.mouse_position_to_cell(position, window)?;
-        let row_index = row.saturating_sub(1) as usize;
+        let cols = self.session.cols();
+        let mut col = (x / cell_width).floor() as i32 + 1;
+        let row = row_index as i32 + 1;
+        if col < 1 { col = 1; }
+        if col > cols as i32 { col = cols as i32; }
+        let col = col as u16;
+        let row_index = (row as u16).saturating_sub(1) as usize;
         let line = self.viewport_lines.get(row_index)?.as_str();
         let byte_index = byte_index_for_column_in_line(line, col).min(line.len());
         let offset = *self.viewport_line_offsets.get(row_index).unwrap_or(&0);

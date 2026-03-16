@@ -100,12 +100,7 @@ fn window_position_to_local(
     let origin = last_bounds
         .map(|bounds| bounds.origin)
         .unwrap_or_else(|| point(px(0.0), px(0.0)));
-    let local = point(position.x - origin.x, position.y - origin.y);
-    eprintln!("[DEBUG selection] mouse=({:.0},{:.0}) bounds_origin=({:.0},{:.0}) local=({:.0},{:.0})",
-        f32::from(position.x), f32::from(position.y),
-        f32::from(origin.x), f32::from(origin.y),
-        f32::from(local.x), f32::from(local.y));
-    local
+    point(position.x - origin.x, position.y - origin.y)
 }
 
 pub(crate) fn sgr_mouse_sequence(button_value: u8, col: u16, row: u16, pressed: bool) -> String {

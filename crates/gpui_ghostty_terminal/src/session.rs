@@ -6,6 +6,8 @@ pub struct TerminalSession {
     config: TerminalConfig,
     terminal: Terminal,
     bracketed_paste_enabled: bool,
+    cursor_visible: bool,
+    synchronized_output_active: bool,
     mouse_x10_enabled: bool,
     mouse_button_event_enabled: bool,
     mouse_any_event_enabled: bool,
@@ -25,6 +27,8 @@ impl TerminalSession {
             config,
             terminal,
             bracketed_paste_enabled: false,
+            cursor_visible: true,
+            synchronized_output_active: false,
             mouse_x10_enabled: false,
             mouse_button_event_enabled: false,
             mouse_any_event_enabled: false,
@@ -55,6 +59,14 @@ impl TerminalSession {
 
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.bracketed_paste_enabled
+    }
+
+    pub fn cursor_visible(&self) -> bool {
+        self.cursor_visible
+    }
+
+    pub fn synchronized_output_active(&self) -> bool {
+        self.synchronized_output_active
     }
 
     pub fn mouse_reporting_enabled(&self) -> bool {
@@ -139,7 +151,9 @@ impl TerminalSession {
                     let enabled = b == b'h';
                     for ps in nums {
                         match ps {
+                            25 => self.cursor_visible = enabled,
                             2004 => self.bracketed_paste_enabled = enabled,
+                            2026 => self.synchronized_output_active = enabled,
                             1000 => self.mouse_x10_enabled = enabled,
                             1002 => self.mouse_button_event_enabled = enabled,
                             1003 => self.mouse_any_event_enabled = enabled,

@@ -244,6 +244,16 @@ impl ByteSelection {
 }
 
 impl TerminalView {
+    fn has_synchronized_output_mode_change(bytes: &[u8]) -> bool {
+        bytes.windows(8).any(|window| {
+            matches!(
+                window,
+                [0x1b, b'[', b'?', b'2', b'0', b'2', b'6', b'h']
+                    | [0x1b, b'[', b'?', b'2', b'0', b'2', b'6', b'l']
+            )
+        })
+    }
+
     pub fn new(session: TerminalSession, focus_handle: FocusHandle) -> Self {
         Self {
             session,
@@ -1931,10 +1941,11 @@ impl Element for TerminalTextElement {
 
         let cursor = {
             let view = self.view.read(cx);
-            view.focus_handle
-                .is_focused(window)
-                .then(|| view.session.cursor_position())
-                .flatten()
+            if view.focus_handle.is_focused(window) && view.session.cursor_visible() {
+                view.session.cursor_position()
+            } else {
+                None
+            }
         }
         .and_then(|(col, row)| {
             let background = { self.view.read(cx).session.default_background() };
@@ -2041,12 +2052,22 @@ impl Render for TerminalView {
 
         if !self.pending_output.is_empty() {
             let bytes = std::mem::take(&mut self.pending_output);
+            let sync_before = self.session.synchronized_output_active();
+            let touched_sync_mode = Self::has_synchronized_output_mode_change(&bytes);
             self.feed_output_bytes_to_session(&bytes);
             self.apply_side_effects(cx);
-            self.reconcile_dirty_viewport_after_output();
+            let sync_after = self.session.synchronized_output_active();
+
+            if sync_after {
+                self.pending_refresh = true;
+            } else if sync_before || touched_sync_mode {
+                self.pending_refresh = true;
+            } else {
+                self.reconcile_dirty_viewport_after_output();
+            }
         }
 
-        if self.pending_refresh {
+        if self.pending_refresh && !self.session.synchronized_output_active() {
             self.refresh_viewport();
             self.pending_refresh = false;
         }

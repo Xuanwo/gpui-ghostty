@@ -396,3 +396,115 @@ fn maps_common_box_drawing_glyphs() {
     }
     assert!(crate::view::box_drawing_mask('X').is_none());
 }
+
+#[test]
+fn scrolling_bottom_margin_preserves_footer_rows() {
+    let config = TerminalConfig {
+        cols: 40,
+        rows: 30,
+        ..TerminalConfig::default()
+    };
+    let mut session = TerminalSession::new(config).unwrap();
+
+    session.feed(b"\x1b[24;1HROW24").unwrap();
+    session.feed(b"\x1b[25;1HROW25-FOOTER").unwrap();
+    session.feed(b"\x1b[26;1HROW26").unwrap();
+
+    session.feed(b"\x1b[1;23r").unwrap();
+    session.feed(b"\x1b[23;1H").unwrap();
+    session.feed(b"TOP-LINE\r\n").unwrap();
+
+    let row24 = session.dump_viewport_row(23).unwrap();
+    let row25 = session.dump_viewport_row(24).unwrap();
+    let row26 = session.dump_viewport_row(25).unwrap();
+
+    assert!(row24.starts_with("ROW24"), "row24={row24:?}");
+    assert!(row25.starts_with("ROW25-FOOTER"), "row25={row25:?}");
+    assert!(row26.starts_with("ROW26"), "row26={row26:?}");
+}
+
+#[test]
+fn multi_line_write_stays_inside_scroll_region() {
+    let config = TerminalConfig {
+        cols: 40,
+        rows: 30,
+        ..TerminalConfig::default()
+    };
+    let mut session = TerminalSession::new(config).unwrap();
+
+    session.feed(b"\x1b[24;1HFOOT24").unwrap();
+    session.feed(b"\x1b[25;1HFOOT25").unwrap();
+    session.feed(b"\x1b[26;1HFOOT26").unwrap();
+
+    session.feed(b"\x1b[1;23r\x1b[23;1H\r\n\x1b[K\r\n").unwrap();
+    session.feed(b"LINE1\r\nLINE2\r\nLINE3").unwrap();
+
+    let row23 = session.dump_viewport_row(22).unwrap();
+    let row24 = session.dump_viewport_row(23).unwrap();
+    let row25 = session.dump_viewport_row(24).unwrap();
+    let row26 = session.dump_viewport_row(25).unwrap();
+
+    assert!(row23.starts_with("LINE3"), "row23={row23:?}");
+    assert!(row24.starts_with("FOOT24"), "row24={row24:?}");
+    assert!(row25.starts_with("FOOT25"), "row25={row25:?}");
+    assert!(row26.starts_with("FOOT26"), "row26={row26:?}");
+}
+
+#[test]
+fn codex_scroll_region_reverse_index_keeps_footer_rows_intact() {
+    let config = TerminalConfig {
+        cols: 40,
+        rows: 12,
+        ..TerminalConfig::default()
+    };
+    let mut session = TerminalSession::new(config).unwrap();
+
+    session.feed(b"\x1b[5;1HBOX5").unwrap();
+    session.feed(b"\x1b[6;1HBOX6").unwrap();
+    session.feed(b"\x1b[7;1HBOX7").unwrap();
+    session.feed(b"\x1b[8;1HBOX8").unwrap();
+    session.feed(b"\x1b[9;1HFOOT9").unwrap();
+    session.feed(b"\x1b[10;1HFOOT10").unwrap();
+
+    session
+        .feed(b"\x1b[?2026h\x1b[5;8r\x1b[5;1H\x1bM\x1bM\x1b[r\x1b[?2026l")
+        .unwrap();
+
+    let row5 = session.dump_viewport_row(4).unwrap();
+    let row6 = session.dump_viewport_row(5).unwrap();
+    let row7 = session.dump_viewport_row(6).unwrap();
+    let row8 = session.dump_viewport_row(7).unwrap();
+    let row9 = session.dump_viewport_row(8).unwrap();
+    let row10 = session.dump_viewport_row(9).unwrap();
+
+    assert_eq!(row5.trim_end(), "", "row5={row5:?}");
+    assert_eq!(row6.trim_end(), "", "row6={row6:?}");
+    assert!(row7.starts_with("BOX5"), "row7={row7:?}");
+    assert!(row8.starts_with("BOX6"), "row8={row8:?}");
+    assert!(row9.starts_with("FOOT9"), "row9={row9:?}");
+    assert!(row10.starts_with("FOOT10"), "row10={row10:?}");
+}
+
+#[test]
+fn insert_blanks_shifts_content_without_touching_footer_rows() {
+    let config = TerminalConfig {
+        cols: 20,
+        rows: 8,
+        ..TerminalConfig::default()
+    };
+    let mut session = TerminalSession::new(config).unwrap();
+
+    session.feed(b"\x1b[3;1HABCDE").unwrap();
+    session.feed(b"\x1b[7;1HFOOT7").unwrap();
+    session.feed(b"\x1b[8;1HFOOT8").unwrap();
+
+    session.feed(b"\x1b[3;2H\x1b[2@").unwrap();
+
+    let row3 = session.dump_viewport_row(2).unwrap();
+    let row7 = session.dump_viewport_row(6).unwrap();
+    let row8 = session.dump_viewport_row(7).unwrap();
+
+    assert!(row3.starts_with("A  BC"), "row3={row3:?}");
+    assert!(row7.starts_with("FOOT7"), "row7={row7:?}");
+    assert!(row8.starts_with("FOOT8"), "row8={row8:?}");
+}

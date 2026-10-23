@@ -75,6 +75,38 @@ const Handler = struct {
         self.terminal.carriageReturn();
     }
 
+    pub fn setTopAndBottomMargin(self: *Handler, top: u16, bot: u16) !void {
+        self.terminal.setTopAndBottomMargin(top, bot);
+    }
+
+    pub fn setLeftAndRightMarginAmbiguous(self: *Handler) !void {
+        if (self.terminal.modes.get(.enable_left_and_right_margin)) {
+            try self.setLeftAndRightMargin(0, 0);
+        } else {
+            try self.saveCursor();
+        }
+    }
+
+    pub fn setLeftAndRightMargin(self: *Handler, left: u16, right: u16) !void {
+        self.terminal.setLeftAndRightMargin(left, right);
+    }
+
+    pub fn reverseIndex(self: *Handler) !void {
+        self.terminal.reverseIndex();
+    }
+
+    pub fn saveCursor(self: *Handler) !void {
+        self.terminal.saveCursor();
+    }
+
+    pub fn restoreCursor(self: *Handler) !void {
+        try self.terminal.restoreCursor();
+    }
+
+    pub fn insertBlanks(self: *Handler, count: u16) !void {
+        self.terminal.insertBlanks(count);
+    }
+
     pub fn setAttribute(self: *Handler, attr: terminal.Attribute) !void {
         try self.terminal.setAttribute(attr);
     }

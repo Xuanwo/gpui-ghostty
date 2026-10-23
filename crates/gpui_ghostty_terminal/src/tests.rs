@@ -95,6 +95,63 @@ fn tracks_bracketed_paste_mode_from_output() {
 }
 
 #[test]
+fn tracks_cursor_visibility_from_output() {
+    let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+    assert!(session.cursor_visible());
+
+    session.feed(b"\x1b[?25l").unwrap();
+    assert!(!session.cursor_visible());
+
+    session.feed(b"\x1b[?25h").unwrap();
+    assert!(session.cursor_visible());
+}
+
+#[test]
+fn tracks_cursor_visibility_across_chunk_boundaries() {
+    let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+    session.feed(b"\x1b[?2").unwrap();
+    assert!(session.cursor_visible());
+
+    session.feed(b"5l").unwrap();
+    assert!(!session.cursor_visible());
+
+    session.feed(b"\x1b[?25").unwrap();
+    assert!(!session.cursor_visible());
+
+    session.feed(b"h").unwrap();
+    assert!(session.cursor_visible());
+}
+
+#[test]
+fn tracks_synchronized_output_mode_from_output() {
+    let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+    assert!(!session.synchronized_output_active());
+
+    session.feed(b"\x1b[?2026h").unwrap();
+    assert!(session.synchronized_output_active());
+
+    session.feed(b"\x1b[?2026l").unwrap();
+    assert!(!session.synchronized_output_active());
+}
+
+#[test]
+fn tracks_synchronized_output_mode_across_chunk_boundaries() {
+    let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
+
+    session.feed(b"\x1b[?20").unwrap();
+    assert!(!session.synchronized_output_active());
+
+    session.feed(b"26h").unwrap();
+    assert!(session.synchronized_output_active());
+
+    session.feed(b"\x1b[?202").unwrap();
+    assert!(session.synchronized_output_active());
+
+    session.feed(b"6l").unwrap();
+    assert!(!session.synchronized_output_active());
+}
+
+#[test]
 fn tracks_mouse_reporting_mode_from_output() {
     let mut session = TerminalSession::new(TerminalConfig::default()).unwrap();
     assert!(!session.mouse_reporting_enabled());

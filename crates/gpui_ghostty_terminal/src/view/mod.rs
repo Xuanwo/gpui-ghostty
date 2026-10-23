@@ -244,6 +244,16 @@ impl ByteSelection {
 }
 
 impl TerminalView {
+    fn has_synchronized_output_mode_change(bytes: &[u8]) -> bool {
+        bytes.windows(8).any(|window| {
+            matches!(
+                window,
+                [0x1b, b'[', b'?', b'2', b'0', b'2', b'6', b'h']
+                    | [0x1b, b'[', b'?', b'2', b'0', b'2', b'6', b'l']
+            )
+        })
+    }
+
     pub fn new(session: TerminalSession, focus_handle: FocusHandle) -> Self {
         Self {
             session,
@@ -674,8 +684,12 @@ impl TerminalView {
 
     pub fn feed_output_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
         self.feed_output_bytes_to_session(bytes);
-        self.refresh_viewport();
         self.apply_side_effects(cx);
+        if self.session.synchronized_output_active() {
+            self.pending_refresh = true;
+        } else {
+            self.refresh_viewport();
+        }
         cx.notify();
     }
 
@@ -692,7 +706,10 @@ impl TerminalView {
             let pending = std::mem::take(&mut self.pending_output);
             self.feed_output_bytes_to_session(&pending);
             self.apply_side_effects(cx);
-            self.reconcile_dirty_viewport_after_output();
+            // Large output burst overflowed the pending buffer; dirty-row
+            // reconciliation may not cover every affected row, so request a
+            // full viewport refresh to avoid stale content.
+            self.pending_refresh = true;
         }
 
         if bytes.len() > MAX_PENDING_OUTPUT_BYTES {
@@ -703,7 +720,9 @@ impl TerminalView {
                 offset = end;
             }
             self.apply_side_effects(cx);
-            self.reconcile_dirty_viewport_after_output();
+            // Multiple large chunks were fed sequentially; the VT's dirty set
+            // may only reflect the last chunk. Force a full refresh.
+            self.pending_refresh = true;
             cx.notify();
             return;
         }
@@ -1931,10 +1950,11 @@ impl Element for TerminalTextElement {
 
         let cursor = {
             let view = self.view.read(cx);
-            view.focus_handle
-                .is_focused(window)
-                .then(|| view.session.cursor_position())
-                .flatten()
+            if view.focus_handle.is_focused(window) && view.session.cursor_visible() {
+                view.session.cursor_position()
+            } else {
+                None
+            }
         }
         .and_then(|(col, row)| {
             let background = { self.view.read(cx).session.default_background() };
@@ -2039,16 +2059,32 @@ impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         ensure_key_bindings(cx);
 
-        if !self.pending_output.is_empty() {
+        let had_pending_output = !self.pending_output.is_empty();
+        if had_pending_output {
             let bytes = std::mem::take(&mut self.pending_output);
+            let sync_before = self.session.synchronized_output_active();
+            let touched_sync_mode = Self::has_synchronized_output_mode_change(&bytes);
             self.feed_output_bytes_to_session(&bytes);
             self.apply_side_effects(cx);
-            self.reconcile_dirty_viewport_after_output();
+            let sync_after = self.session.synchronized_output_active();
+
+            if sync_after {
+                self.pending_refresh = true;
+            } else if sync_before || touched_sync_mode {
+                self.pending_refresh = true;
+            } else {
+                self.reconcile_dirty_viewport_after_output();
+            }
         }
 
         if self.pending_refresh {
-            self.refresh_viewport();
-            self.pending_refresh = false;
+            // Only defer refresh while synchronized output is active AND
+            // the refresh was triggered by PTY output.  User-driven
+            // refreshes (resize, scrollback) must never be blocked.
+            if !self.session.synchronized_output_active() || !had_pending_output {
+                self.refresh_viewport();
+                self.pending_refresh = false;
+            }
         }
 
         if self.session.window_title_updates_enabled() {
